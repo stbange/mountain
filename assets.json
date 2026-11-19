@@ -4,6 +4,7 @@
   "assets/art/field.tga",
   "assets/art/letters.tga",
   "assets/scripts/cabin.lua",
+  "assets/scripts/wildlife.lua",
   "assets/scripts/world.lua",
   "assets/shaders/ridge.frag",
   "assets/shaders/ridge.vert",

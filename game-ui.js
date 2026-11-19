@@ -301,14 +301,28 @@ function topography(map) {
     Module._mountain_path(i, 1),
   ]);
   const hiker = [val(0), val(1)];
-  const coordinates = [...trail, hiker],
+  const station = Math.floor(val(26)),
+    nearOpening = val(27) < 285;
+  const first = Math.max(0, station - 13),
+    last = nearOpening
+      ? Math.max(5, station + 5)
+      : Math.max(first, station + 13);
+  const onward = Array.from({ length: last - first + 1 }, (_, j) => [
+    Module._mountain_extension(first + j, 0),
+    Module._mountain_extension(first + j, 1),
+  ]);
+  const coordinates = nearOpening ? [...trail, ...onward, hiker] : [hiker],
     xs = coordinates.map((p) => p[0]),
     zs = coordinates.map((p) => p[1]);
   const minX = Math.min(...xs),
     maxX = Math.max(...xs),
     minZ = Math.min(...zs),
     maxZ = Math.max(...zs);
-  const step = Math.max(2.75, (maxX - minX + 56) / nx, (maxZ - minZ + 52) / ny);
+  const step = Math.max(
+    nearOpening ? 2.75 : 5,
+    (maxX - minX + 56) / nx,
+    (maxZ - minZ + 52) / ny,
+  );
   const ox = (minX + maxX) / 2,
     oz = (minZ + maxZ) / 2,
     alt = new Float32Array((nx + 1) * (ny + 1));
@@ -372,21 +386,53 @@ function topography(map) {
     ((z - oz) / step) * sy + h / 2,
   ];
   ctx.lineJoin = ctx.lineCap = "round";
-  ctx.beginPath();
-  trail
-    .map(project)
-    .forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  ctx.lineWidth = 5.4;
-  ctx.strokeStyle = "#fff4d8";
-  ctx.stroke();
-  ctx.lineWidth = 2.7;
-  ctx.strokeStyle = "#a14e33";
-  ctx.stroke();
+  const drawPath = (line) => {
+    ctx.beginPath();
+    line
+      .map(project)
+      .forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.lineWidth = 5.4;
+    ctx.strokeStyle = "#fff4d8";
+    ctx.stroke();
+    ctx.lineWidth = 2.7;
+    ctx.strokeStyle = "#a14e33";
+    ctx.stroke();
+  };
+  if (val(27) < 600) drawPath(trail);
+  if (onward.length > 1) drawPath(onward);
+  if (!nearOpening && onward.length) {
+    const nearest = [...trail, ...onward].reduce((a, b) =>
+      Math.hypot(b[0] - hiker[0], b[1] - hiker[1]) <
+      Math.hypot(a[0] - hiker[0], a[1] - hiker[1])
+        ? b
+        : a,
+    );
+    const [x, y] = project(nearest);
+    if (x < 4 || x > w - 4 || y < 4 || y > h - 4) {
+      const dx = x - w / 2,
+        dy = y - h / 2,
+        scale = Math.min(
+          (w / 2 - 23) / Math.abs(dx),
+          (h / 2 - 20) / Math.abs(dy),
+        );
+      ctx.save();
+      ctx.translate(w / 2 + dx * scale, h / 2 + dy * scale);
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.fillStyle = "#994d34";
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-6, -5);
+      ctx.lineTo(-6, 5);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
   for (const [index, label] of [
     [val(21), "1"],
     [trail.length - 1, "2"],
   ]) {
     const [x, y] = project(trail[index]);
+    if (x < 0 || x > w || y < 0 || y > h) continue;
     ctx.beginPath();
     ctx.arc(x, y, 8, 0, 2 * Math.PI);
     ctx.fillStyle = "#83422d";
@@ -426,14 +472,22 @@ function trailMap() {
   map.height = 260;
   map.setAttribute(
     "aria-label",
-    "Contour map showing your position and the marked trail to Lakeside View and Ridge Lookout",
+    "Contour map of your position, nearby viewpoints and the continuing trail",
   );
   content.append(map);
   topography(map);
-  content.append(el("p", "① Lakeside View　 ② Ridge Lookout", "route-legend"));
+  content.append(
+    el(
+      "p",
+      val(27) < 285
+        ? "① Lakeside View　 ② Ridge Lookout · Trail continues beyond the cairn"
+        : "Endless trail · Follow the blazes between cairns",
+      "route-legend",
+    ),
+  );
   const details = el("div", null, "map-details");
   details.append(
-    el("span", Math.round(val(22) * val(24)).toLocaleString() + " m trail"),
+    el("span", Math.round(val(15) * val(24)).toLocaleString() + " m walked"),
     el("span", "Contours every " + 8 * val(24) + " m"),
   );
   content.append(details);
@@ -519,6 +573,24 @@ function guide() {
       "note",
     ),
   );
+  const sightings = Module._mountain_sightings();
+  const animals = Array.from({ length: 5 }, (_, k) =>
+    sightings & (1 << k)
+      ? Module.ccall("mountain_species", "string", ["number"], [k])
+      : "",
+  ).filter(Boolean);
+  const wildlife = el("div", null, "field");
+  wildlife.append(
+    el("span", "Wildlife nearby", "field-title"),
+    el(
+      "p",
+      animals.length
+        ? animals.join(" · ")
+        : "Look along forest edges and the open slopes.",
+      "note",
+    ),
+  );
+  content.append(wildlife);
   if (window.mountainXR?.supported)
     content.append(
       button(
