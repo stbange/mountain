@@ -112,7 +112,6 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      pages: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -121,11 +120,3 @@ jobs:
           path: dist
       - name: Update the build-only gh-page branch
         run: bash tools/publish-web.sh dist
-      - name: Rebuild the configured GitHub Pages site
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          source_branch=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq '.source.branch' 2>/dev/null || true)
-          if [[ "$source_branch" == gh-page ]]; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" --silent
-          fi
