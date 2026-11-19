@@ -67,8 +67,14 @@
         <div id="bearing"></div>
         <b></b>
       </div>
-      <button id="conditions" class="glass weather-control">
-        <i id="sky-icon" class="icon i-sun"></i><span id="skies">Clear</span
+      <button
+        id="conditions"
+        class="glass weather-control"
+        aria-label="Season and weather"
+        title="Season and weather"
+      >
+        <i id="sky-icon" class="icon i-sun"></i><span>Season &amp; weather</span
+        ><span class="pip">·</span><span id="skies">Clear</span
         ><span class="pip">·</span><time id="clock">16:39</time
         ><i class="icon i-chevron small"></i>
       </button>
@@ -80,7 +86,14 @@
         <div class="facts">
           <span><i class="icon i-altitude"></i><b id="height">— m</b></span
           ><em></em
-          ><span><i class="icon i-leaf"></i><b id="season">Summer</b></span>
+          ><button
+            id="change-season"
+            aria-label="Change season"
+            title="Change season"
+          >
+            <i class="icon i-leaf"></i><b id="season">Summer</b
+            ><i class="icon i-chevron"></i>
+          </button>
         </div>
       </div>
       <button id="use" class="use" hidden>

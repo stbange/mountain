@@ -78,6 +78,8 @@ static void hiking(const Rules *r) {
     CLOSE(g.pitch, 1.33f);
     game_look(&g, 0, -5);
     CLOSE(g.pitch, -1.33f);
+    CHECK(!g.changing_weather);
+    game_action(&g, ACT_CHANGING_WEATHER);
     g.weather_clock = r->weather_interval;
     game_tick(&g, .1f, 0, 0);
     CHECK(g.weather != 2);
@@ -140,6 +142,71 @@ static void hiking(const Rules *r) {
         game_tick(&g, 1.f / 120, 1, 0);
     CHECK(!g.cabin.inside && game_action(&g, ACT_CABIN) && !g.cabin.present);
 }
+static void marked_hikes(const Rules *rules, const char *assets) {
+    Game g;
+    const uint32_t seeds[] = {4812, 291, 3107, 0, UINT32_MAX, rules->survey.seed};
+    for (size_t j = 0; j < sizeof seeds / sizeof *seeds; j++) {
+        game_init(&g, rules, seeds[j]);
+        Route *r = &g.world.route;
+        CHECK(r->count > 2 && r->overlook > 0 && r->overlook < r->count - 1);
+        CHECK(r->length > 150 && r->length < 1000);
+        CHECK(route_distance(r, 900, 900) == 32);
+        float walked = 0;
+        for (int i = 1; i < r->count; i++) {
+            Place a = r->point[i - 1], b = r->point[i];
+            float len = hypotf(a.x - b.x, a.z - b.z);
+            CHECK(len > 0);
+            for (int k = 0; k <= (int)len + 1; k++) {
+                float t = (float)k / ((int)len + 1), x = mixf(a.x, b.x, t), z = mixf(a.z, b.z, t);
+                CHECK(height_at(&g.world, x, z) > water_at(&g.world, x, z));
+                CHECK(route_distance(r, x, z) < .002f);
+            }
+            walked += len;
+        }
+        CLOSE(walked, r->length);
+        if (g.world.survey) {
+            const Survey *v = g.world.survey;
+            CHECK(!strcmp(trail_name(&g), "Taggart Lake") && v->side == 513);
+            CHECK(!survey_lake(v, 0, 0) && survey_lake(v, -110, -20));
+            CHECK(survey_height(v, -110, -20) < 0);
+            CHECK(survey_height(v, -865, -840) * v->scale + v->surface > 3900);
+            CHECK(isfinite(survey_height(v, 99999, -99999)));
+            CHECK(height_at(&g.world, r->point[r->count - 1].x, r->point[r->count - 1].z) >
+                  height_at(&g.world, r->point[r->overlook].x, r->point[r->overlook].z));
+        }
+    }
+    Survey missing = {0};
+    CHECK(!survey_load(&missing, "/no-mountain"));
+    strcpy(missing.file, "scripts/world.lua");
+    missing.scale = 5;
+    CHECK(!survey_load(&missing, assets) && !missing.data);
+    game_init(&g, rules, 4812);
+    Route original = g.world.route;
+    game_init(&g, rules, 4812);
+    CHECK(!memcmp(&original, &g.world.route, sizeof original));
+    select_season(&g, 2);
+    select_weather(&g, 1);
+    CHECK(!g.cycle_seasons && !g.changing_weather);
+    g.season_clock = rules->season_interval;
+    g.weather_clock = rules->weather_interval;
+    game_tick(&g, .2f, 0, 0);
+    CHECK(g.season == 2 && g.weather == 1);
+    game_action(&g, ACT_CYCLE_SEASONS);
+    g.season_clock = rules->season_interval;
+    game_tick(&g, .2f, 0, 0);
+    CHECK(g.season == 3 && g.weather == 1);
+    game_action(&g, ACT_CHANGING_WEATHER);
+    select_season(&g, 1);
+    CHECK(g.changing_weather && !g.cycle_seasons);
+    game_conditions(&g, 1, 0, 12);
+    CHECK(insects_active(&g));
+    game_conditions(&g, 1, 2, 12);
+    CHECK(!insects_active(&g));
+    game_conditions(&g, 0, 0, 0);
+    CHECK(!insects_active(&g));
+    game_conditions(&g, 3, 0, 12);
+    CHECK(!insects_active(&g));
+}
 static uint32_t geometry_hash(const Mesh *m) {
     const unsigned char *bytes = (const unsigned char *)m->v;
     uint32_t hash = 0x811c9dc5u;
@@ -199,6 +266,19 @@ static void composition(Script *s) {
     CHECK(found);
     wildlife(&m, &g);
     CHECK(m.count > 0);
+    game_init(&grove, &s->rules, s->rules.survey.seed);
+    landscape(&m, &grove, 0, 0);
+    CHECK(m.count > 65000 && !m.failed);
+    game_conditions(&grove, 1, 0, 12);
+    wildlife(&m, &grove);
+    uint32_t flight = geometry_hash(&m);
+    size_t in_flight = m.count;
+    game_tick(&grove, .18f, 0, 0);
+    wildlife(&m, &grove);
+    CHECK(flight != geometry_hash(&m));
+    grove.hour = 0;
+    wildlife(&m, &grove);
+    CHECK(m.count < in_flight);
     CHECK(!strcmp(room_name(s, 0), "Hearth Room"));
     CHECK(strcmp(room_name(s, 2147483647u), "Hearth Room"));
     Pose pose = {{0}, 0};
@@ -244,13 +324,16 @@ static void platform(const char *assets) {
     mountain_frame();
     uint32_t checksum = display_sample(260, 160);
     mountain_seed(271);
+    mountain_select(0, 3);
+    mountain_select(1, 2);
+    CHECK(!strcmp(mountain_label(2), "Snow") && !strcmp(mountain_option(1, 2), "Snow"));
     mountain_conditions(3, 2, 0);
     mountain_frame();
     CHECK(checksum != display_sample(260, 160));
     mountain_look(.2f, -.2f);
     mountain_input(.7f, .1f);
     mountain_walk(.1f, 1, 0);
-    for (int k = 0; k <= 17; k++)
+    for (int k = 0; k <= 25; k++)
         CHECK(isfinite(mountain_value(k)));
     CHECK(mountain_value(7) == 271 && mountain_value(15) > 0);
     mountain_pause(1);
@@ -266,10 +349,17 @@ static void platform(const char *assets) {
     mountain_xr_active(0);
     CHECK(mountain_sound());
     CHECK(!mountain_sound());
-    SDL_Keycode keys[] = {SDLK_H, SDLK_E, SDLK_E,  SDLK_R,      SDLK_E, SDLK_H, SDLK_T, SDLK_U,
-                          SDLK_Y, SDLK_N, SDLK_F1, SDLK_ESCAPE, SDLK_P, SDLK_M, SDLK_M, SDLK_J};
+    SDL_Keycode keys[] = {SDLK_H,      SDLK_E, SDLK_E, SDLK_R, SDLK_E, SDLK_H, SDLK_T,
+                          SDLK_U,      SDLK_Y, SDLK_I, SDLK_O, SDLK_B, SDLK_N, SDLK_F1,
+                          SDLK_ESCAPE, SDLK_P, SDLK_M, SDLK_M, SDLK_J};
     for (size_t i = 0; i < sizeof keys / sizeof *keys; i++)
         event_key(keys[i]);
+    mountain_seed((uint32_t)mountain_value(23));
+    CHECK(!strcmp(mountain_label(0), mountain_label(4)));
+    CHECK(!strcmp(mountain_label(5), "Wyoming"));
+    CHECK(mountain_value(8) > 2100 && mountain_value(8) < 2110);
+    CHECK(mountain_wet(-110, -20) && !mountain_wet(0, 0));
+    CHECK(mountain_path(-1, 0) == 0 && mountain_path(0, 1) == 0 && mountain_path(0, 0) == 0);
     SDL_Event mouse = {0};
     mouse.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     SDL_PushEvent(&mouse);
@@ -296,6 +386,7 @@ int main(int argc, char **argv) {
     CHECK(script_load(&s, argv[1]));
     maths(&s.rules);
     hiking(&s.rules);
+    marked_hikes(&s.rules, argv[1]);
     composition(&s);
     script_close(&s);
     platform(argv[1]);

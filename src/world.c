@@ -1,12 +1,8 @@
 #include "mountain.h"
 #include <math.h>
 
-float clampf(float v, float lo, float hi) {
-    return fmaxf(lo, fminf(hi, v));
-}
-float mixf(float a, float b, float t) {
-    return a + (b - a) * t;
-}
+float clampf(float v, float lo, float hi) { return fmaxf(lo, fminf(hi, v)); }
+float mixf(float a, float b, float t) { return a + (b - a) * t; }
 float smooth(float a, float b, float x) {
     float t = clampf((x - a) / (b - a), 0, 1);
     return t * t * (3 - 2 * t);
@@ -36,15 +32,16 @@ Color rgb(unsigned n) {
 Color blend(Color a, Color b, float t) {
     return (Color){mixf(a.r, b.r, t), mixf(a.g, b.g, t), mixf(a.b, b.b, t)};
 }
-Color shade(Color c, float l) {
-    return (Color){c.r * l, c.g * l, c.b * l};
-}
+Color shade(Color c, float l) { return (Color){c.r * l, c.g * l, c.b * l}; }
 
 void world_init(World *w, uint32_t seed, const Rules *r) {
     w->seed = seed;
     w->relief = r->relief;
-    w->water = r->water;
+    w->survey = r->survey.data && seed == r->survey.seed ? &r->survey : NULL;
+    w->water = w->survey ? 0 : r->water;
     w->phase = (random2(4, 8, seed) - .5f) * 1.6f;
+    w->meadow_level = -13 + 8 * random2(0, 0, seed) + 2.5f * random2(0, 0, seed + 29) +
+                      48 * expf(-.85f * (24.f * 24 / (77 * 77) + 24.f * 24 / (74 * 74)));
     for (int i = 0; i < RIDGES; i++) {
         float a = random2(i, 1, seed), b = random2(i, 2, seed), c = random2(i, 3, seed);
         Peak p = {0};
@@ -77,12 +74,12 @@ void world_init(World *w, uint32_t seed, const Rules *r) {
         p.angle = a * 4.7f;
         w->peaks[i] = p;
     }
+    route_generate(w);
 }
 
-float trail_x(const World *w, float z) {
-    return 2.8f + sinf(z * .067f + w->phase) * 2.4f + sinf(z * .022f + w->phase) * 7.f;
-}
 float height_at(const World *w, float x, float z) {
+    if (w->survey)
+        return survey_height(w->survey, x, z);
     uint32_t s = w->seed;
     float broad = noise2(x * .011f, z * .011f, s), detail = noise2(x * .050f, z * .050f, s + 29);
     float base = -13 + 8 * broad + 2.5f * detail;
@@ -91,6 +88,11 @@ float height_at(const World *w, float x, float z) {
     base += 48 * expf(-.85f * (sx * sx + sz * sz));
     float valley = x - 19 * sinf(z * .013f + w->phase);
     base += 17 * smooth(38, 127, fabsf(valley)) + 18 * smooth(8, 155, z);
+    float opening = x * x + z * z;
+    if (opening < 38 * 38) {
+        float bench = w->meadow_level + .055f * z - .019f * x;
+        base = mixf(bench, base, smooth(10, 38, sqrtf(opening)));
+    }
     float high = 0;
     float warp_x = (noise2(x * .013f, z * .013f, s + 8) - .5f) * 33;
     float warp_z = (noise2(x * .016f, z * .016f, s + 18) - .5f) * 27;
@@ -100,7 +102,11 @@ float height_at(const World *w, float x, float z) {
         if (fabsf(dx) > 1.36f || fabsf(dz) > 1.36f)
             continue;
         float d = sqrtf(dx * dx + dz * dz);
-        float flank = 1 - d * (1 + .105f * sinf(atan2f(dz, dx) * 3 + p->angle));
+        float aspect = atan2f(dz, dx) + p->angle;
+        float ribs = fabsf(sinf(3 * aspect + .65f * d)) + .43f * fabsf(sinf(5 * aspect - 1.4f * d));
+        float flank = 1 - d * (.78f + .34f * ribs);
+        if (i < 10)
+            flank += .095f * (1 - smooth(.03f, .70f, d)) * cosf(2 * aspect) * d;
         high = fmaxf(high, p->h * fmaxf(0, flank));
     }
     float rugged = smooth(8, 100, high);
@@ -110,28 +116,41 @@ float height_at(const World *w, float x, float z) {
         high += smooth(800, 1050, fmaxf(fabsf(x), fabsf(z))) * (38 + 120 * broad);
     return base + high;
 }
-float sunlight_factor(float hour) {
-    return smooth(-.16f, .33f, sinf((hour - 6) * PI / 12));
-}
-float alpenglow(float hour) {
-    return 1 - smooth(.03f, .71f, fabsf(sinf((hour - 6) * PI / 12)));
-}
+float sunlight_factor(float hour) { return smooth(-.16f, .33f, sinf((hour - 6) * PI / 12)); }
+float alpenglow(float hour) { return 1 - smooth(.03f, .71f, fabsf(sinf((hour - 6) * PI / 12))); }
 
 bool world_tree(const World *w, int i, int j, Tree *tree) {
     uint32_t s = w->seed;
     float x = (i + random2(i, j, s + 1)) * 7, z = (j + random2(i, j, s + 2)) * 7;
     float h = height_at(w, x, z), patch = noise2(x * .032f, z * .032f, s + 61);
-    if (h < w->water + 1.7f || h > 112 + 17 * patch)
+    if (h < water_at(w, x, z) + 1.7f || h > 112 + 17 * patch)
         return false;
-    float gap = smooth(6, 28, fabsf(x - trail_x(w, z)));
+    float gap = smooth(3.15f, 13.f, route_distance(&w->route, x, z));
     float meadow = smooth(8, 44, hypotf(x, z));
     if (random2(i, j, s + 83) > (.20f + patch * .86f) * gap * (.32f + meadow * .68f))
         return false;
+    const Route *route = &w->route;
+    for (int stop = 0; stop < 2; stop++) {
+        Place p = route->point[stop ? route->count - 1 : route->overlook],
+              sight = route->sight[stop];
+        float dx = x - p.x, dz = z - p.z, along = dx * sight.x + dz * sight.z;
+        if (dx * dx + dz * dz < 13 * 13 ||
+            (along > 0 && along < 62 && fabsf(dx * sight.z - dz * sight.x) < 4 + .28f * along))
+            return false;
+    }
+    if (w->survey) {
+        /* The eastern shore opens onto a glacial lake and its mountain skyline. */
+        float right = x * cosf(w->survey->bearing) + z * sinf(w->survey->bearing);
+        float ahead = x * sinf(w->survey->bearing) - z * cosf(w->survey->bearing);
+        if (ahead > 0 && ahead < 62 && fabsf(right) < 3.5f + .15f * ahead)
+            return false;
+    }
     float species = random2(i, j, s + 145);
     *tree = (Tree){x,
                    h,
                    z,
-                   (6 + 11 * random2(i, j, s + 5)) * (1 - .32f * smooth(74, 124, h)),
+                   (6 + 11 * random2(i, j, s + 5)) * (w->survey ? .68f : 1.f) *
+                       (1 - .32f * smooth(74, 124, h)),
                    random2(i, j, s + 7) * PI,
                    .78f + .24f * patch,
                    species < .14f ? 3 : (species < .23f ? 2 : (i % 3 == 0 ? 1 : 0))};

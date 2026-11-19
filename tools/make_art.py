@@ -238,6 +238,107 @@ def doe(d, r):
     d.point((102, 35), fill=(41, 39, 31))
 
 
+def alpine(d, r, kind):
+    # Nodding glacier lilies, paintbrush bracts and dry autumn seed heads.
+    for _ in range(13 if kind == 12 else 19):
+        x, y = r.uniform(12, 116), r.uniform(110, 126)
+        h, bend = r.uniform(35, 81), r.uniform(-13, 13)
+        tip, top = x + bend, y - h
+        stem = r.choice([(72, 102, 62), (89, 113, 55), (128, 139, 75)])
+        if kind == 14:
+            stem = (143, 124, 72)
+        d.line([(x, y), (x + bend * 0.4, y - h * 0.55), (tip, top)], fill=stem, width=2)
+        for side in (-1, 1):
+            d.polygon(
+                [
+                    (x, y - 2),
+                    (x + side * 12, y - h * 0.44),
+                    (x + side * 5, y - h * 0.37),
+                ],
+                fill=stem,
+            )
+        if kind == 12:
+            d.arc((tip - 5, top - 4, tip + 3, top + 5), 185, 357, fill=stem, width=2)
+            for off in [-4, 0, 4]:
+                d.polygon(
+                    [
+                        (tip - 4, top),
+                        (tip - 4 + off, top - 7),
+                        (tip - 3 + off * 1.4, top - 4),
+                        (tip - 4, top + 5),
+                    ],
+                    fill=r.choice([(255, 218, 73), (251, 193, 43), (246, 218, 118)]),
+                )
+            d.line((tip - 4, top + 2, tip - 4, top + 7), fill=(184, 111, 34), width=2)
+        elif kind == 13:
+            for k in range(8):
+                yy, side = top + k * 2.7, (-1) ** k
+                d.polygon(
+                    [
+                        (tip, yy + 3),
+                        (tip + side * (3 + k * 0.6), yy - 6),
+                        (tip + side * 2, yy - 5),
+                    ],
+                    fill=r.choice(
+                        [(198, 65, 47), (226, 87, 53), (248, 126, 71), (178, 62, 48)]
+                    ),
+                )
+        else:
+            for k in range(12):
+                a, rad = r.uniform(0, 2 * pi), r.uniform(2, 7)
+                xx, yy = tip + cos(a) * rad, top + sin(a) * rad
+                d.line((tip, top, xx, yy), fill=(177, 153, 100))
+                d.ellipse(
+                    (xx - 1, yy - 1, xx + 1, yy + 1),
+                    fill=r.choice([(210, 185, 131), (155, 126, 83)]),
+                )
+
+
+def butterfly_wing(d, r):
+    # One articulated wing, with veins and a pale spotted outer margin.
+    outline = [
+        (4, 63),
+        (26, 32),
+        (79, 7),
+        (114, 3),
+        (124, 15),
+        (114, 44),
+        (91, 63),
+        (105, 75),
+        (97, 96),
+        (72, 117),
+        (48, 123),
+        (23, 107),
+        (8, 77),
+    ]
+    d.polygon(outline, fill=(63, 48, 37))
+    d.polygon(
+        [(9, 62), (32, 33), (80, 12), (109, 10), (103, 34), (77, 56), (34, 70)],
+        fill=(235, 161, 73),
+    )
+    d.polygon(
+        [(12, 72), (43, 65), (75, 61), (95, 75), (85, 95), (57, 113), (31, 105)],
+        fill=(223, 139, 62),
+    )
+    for tip in [(95, 16), (88, 42), (72, 56), (84, 78), (67, 104), (44, 108)]:
+        d.line(
+            [(10, 69), ((tip[0] + 14) * 0.5, (tip[1] + 67) * 0.5), tip],
+            fill=(124, 83, 48),
+            width=2,
+        )
+    for x, y in [
+        (114, 14),
+        (109, 26),
+        (102, 39),
+        (89, 52),
+        (94, 80),
+        (84, 97),
+        (71, 109),
+        (51, 117),
+    ]:
+        d.ellipse((x - 3, y - 2, x + 3, y + 2), fill=(255, 239, 190))
+
+
 for n in [0, 1, 2, 10]:
     tile(n, lambda d, r, n=n: conifer(d, r, n))
 tile(3, broadleaf)
@@ -246,6 +347,9 @@ for n in [4, 5, 8, 11]:
     tile(n, lambda d, r, n=n: flowers(d, r, n))
 tile(6, fern)
 tile(7, doe)
+for n in [12, 13, 14]:
+    tile(n, lambda d, r, n=n: alpine(d, r, n))
+tile(15, butterfly_wing)
 (ROOT / "art").mkdir(exist_ok=True)
 
 

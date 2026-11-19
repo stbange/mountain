@@ -2,13 +2,19 @@
 
 A quiet first-person hiking game set on Earth. Walk down from Larkspur Ridge, wait for the light on the lake, and take a photograph. Call a wood cabin onto the trail when you want to come inside.
 
-[Play the browser build](https://raw.githack.com/stbange/mountain/gh-page/index.html) · [Download desktop builds from the latest successful playtest run](https://github.com/stbange/mountain/actions/workflows/playtest.yml)
+[Play the browser build](https://stbange.github.io/mountain/) · [Download desktop builds from the latest successful playtest run](https://github.com/stbange/mountain/actions/workflows/playtest.yml)
 
 ![An in-game summer photograph of the lake below Larkspur Ridge](docs/larkspur-ridge.png)
 
 ## On the trail
 
-The first trail opens at a reproducible overlook. **Trail map** shows contours and your heading. Enter a seed to revisit a mountain, or choose **Generate a new mountain**. The clock advances and the weather changes while hiking. Click the weather and time indicator to choose a season, change the weather, or wait for a particular light.
+Larkspur Ridge opens at a meadow trailhead. Follow the earth path and the timber posts with a cream and rust blaze. The first cairn marks **Lakeside View** and the second marks **Ridge Lookout**. **Trail map** shows the full walk, its length, both stops, and your position and heading. Enter a seed to revisit a mountain or choose **Generate a new mountain**.
+
+Choose **Taggart Lake · Wyoming** in the map to walk beneath the Teton Range. The terrain comes from USGS 3DEP public-domain survey elevations. In this play-scale landscape each game metre represents five metres of terrain horizontally and vertically. The map and altimeter report geographic metres. The game generates its own route, plants and wildlife. [USGS source and attribution](assets/CREDITS.txt)
+
+![The Teton Range and the shore of Taggart Lake, photographed from the trail’s first cairn](docs/taggart-lake.png)
+
+Open **Season & weather** or click the season beside your elevation. Pick spring, summer, autumn or winter and choose the sky or time of day. A manual selection holds that condition. **Cycle through seasons** and **Let the weather change** run independently. Changing trails retains your chosen conditions. Spring glacier lilies give way to summer paintbrush and lupines, then autumn seed heads. In suitable daylight, butterflies and bumblebees visit the flowers. Winter precipitation falls as snow.
 
 **Summon cabin** places a furnished lodge ahead. Its footings follow the slope. In a grove, a mature tree at the edge of the floor can carry the platform. Open the front door to see the Hearth Room, then walk through. The door at the far end leads to another room. Rooms are regenerated from their index as you move. Their windows look back onto the current mountain. Walk back the way you came, or use **R** to return to the entrance. Step outside to dismiss the house.
 
@@ -24,9 +30,10 @@ The first trail opens at a reproducible overlook. **Trail map** shows contours a
 | Photograph | P. On web, C opens the viewfinder. | Camera, then Take photo |
 | Sound | M | Speaker button |
 | Guide | G on web, F1 on native | Field guide |
-| Native conditions / a new seed | T for time, Y for season, U for weather, N for a new mountain | Trail map and weather controls |
+| Conditions | V opens the web panel. Y changes season, U changes weather and T advances the hour. Native I toggles seasonal cycling and O toggles changing weather. | Season & weather |
+| Destination | Trail map on web. On native, B opens Taggart Lake and N generates a new mountain. | Trail map |
 
-On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to use a door, and squeeze to summon or dismiss outdoors. WebXR requires HTTPS or localhost.
+On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to use a door, and squeeze to summon or dismiss outdoors. On controllers with X and Y face buttons, X changes season and Y changes weather. WebXR requires HTTPS or localhost.
 
 ## Build
 
@@ -54,12 +61,16 @@ Open http://localhost:8000/. Serve the entire directory. The loader reads the ma
 | Location | Responsibility |
 | --- | --- |
 | src/world.c and src/game.c | Seeded relief, vegetation placement, clock, hiking, thresholds and cabin state |
+| src/route.c and src/survey.c | Grade-aware trail search, viewpoint selection, trail texture and survey interpolation |
+| assets/terrain/taggart.mht | Resampled public-domain terrain and lake footprint |
 | src/mesh.c, src/scene.c and src/render.c | Terrain meshes, sprite stands, voxel details, reflective water, window views and OpenGL passes |
 | src/script.c | Loads the Lua content and exposes the room geometry builder |
 | src/app.c and web/ | SDL input, sound and photos, browser controls, journal and WebXR |
 | assets/scripts/world.lua | Starting trail, relief, water, pace, clock rate, names, seasons and palettes |
 | assets/scripts/cabin.lua | Floor plans, window openings, furniture, fixtures, materials and room titles |
 | assets/art, assets/shaders and assets/sound | Original bitmap art, GLSL and loopable PCM ambience |
+
+To reproduce the Taggart Lake terrain asset, run `python tools/prepare_taggart.py USGS_1_n44w111.tif assets/terrain/taggart.mht` with Pillow installed. The input tile used for this release has SHA-256 `ec3e6b490cdd5035af94952a0d6b4415c42b15da6a85ebeae75edaeb51c9afe5`. The preparation tool records the trailhead coordinates and samples a 40-metre grid.
 
 Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw and optional roof tilt. Room zero is the main cabin. The renderer holds the active room and its immediate neighbours, so memory usage stays bounded as the hiker explores. Additional terrain types or planetary sky models can extend the C generator and the Lua world definition.
 
@@ -83,6 +94,6 @@ Use a fresh coverage build to measure the unit run independently. For headless L
 
 ## Branches and licensing
 
-Development takes place on **main**. **gh-page** contains the staged browser distribution. The playtest workflow builds Linux, Windows and Web, runs their checks and advances gh-page after they pass. The play link above serves that branch through Raw.githack. To use the repository’s own GitHub Pages address, select **Deploy from a branch → gh-page → / (root)** in [Pages settings](https://github.com/stbange/mountain/settings/pages).
+Development takes place on **main**. **gh-page** contains the staged browser distribution. The playtest workflow builds Linux, Windows and Web, runs their checks and advances gh-page after they pass. GitHub Pages serves the root of that branch at the play link above.
 
 Code and shaders are licensed under [MIT](LICENSE). Original sprite art, models, palette work, interface artwork and ambience are licensed under [CC BY 4.0](assets/LICENSE-ART.txt). [Art attribution](assets/CREDITS.txt) and [third-party notices](THIRD-PARTY.txt) accompany the distributions.

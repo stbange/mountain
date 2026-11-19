@@ -115,7 +115,13 @@ def test_desktop(browser, url):
     assert v(page, 9) == 0
     page.click("#conditions")
     page.get_by_role("button", name="Winter", exact=True).click()
-    page.get_by_role("button", name="Rain", exact=True).click()
+    page.get_by_role("button", name="Snow", exact=True).click()
+    assert v(page, 18) == 0 and v(page, 19) == 0
+    page.get_by_label("Cycle through seasons").check()
+    assert v(page, 18) == 1 and v(page, 19) == 0
+    page.get_by_label("Let the weather change").check()
+    page.get_by_role("button", name="Winter", exact=True).click()
+    assert v(page, 18) == 0 and v(page, 19) == 1
     page.get_by_role("button", name="Midnight", exact=True).click()
     page.click("#close")
     night = frame(page)
@@ -150,6 +156,12 @@ def test_desktop(browser, url):
     assert page.locator(".print").count() == 1
     page.click("#close")
     page.click("#map")
+    page.get_by_role("button", name="Taggart Lake · Wyoming").click()
+    assert v(page, 7) == v(page, 23) and v(page, 24) == 5
+    assert page.locator("h1").text_content() == "Taggart Lake"
+    assert 2100 < v(page, 8) < 2110 and v(page, 22) > 150
+    page.click("#map")
+    assert page.get_by_text("① Lakeside View", exact=False).is_visible()
     page.get_by_role("button", name="Generate a new mountain").click()
     assert v(page, 7) != 4812
     page.click("#guide")
@@ -199,6 +211,11 @@ def test_touch(browser, url):
     event("touchMove", 204, 300)
     event("touchEnd")
     assert abs(v(page, 2) - angle) > 0.1
+    page.get_by_role("button", name="Season and weather", exact=True).tap()
+    page.get_by_role("button", name="Spring", exact=True).tap()
+    page.get_by_role("button", name="Mist", exact=True).tap()
+    page.tap("#close")
+    assert (v(page, 5), v(page, 6)) == (0, 3)
     page.tap("#cabin")
     page.tap("#use")
     page.tap("#use")
@@ -230,6 +247,15 @@ def test_headset(browser, url):
     assert v(page, 9)
     page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
     assert v(page, 10)
+    page.evaluate(
+        "testHeadset.session.inputSources[0].gamepad.buttons[4]={pressed:true}"
+    )
+    page.wait_for_function("Module._mountain_value(5)===2")
+    page.evaluate(
+        "testHeadset.session.inputSources[0].gamepad.buttons[5]={pressed:true}"
+    )
+    page.wait_for_function("Module._mountain_value(6)===1")
+    assert v(page, 5) == 2
     page.evaluate("testHeadset.session.end()")
     assert page.evaluate("mountainXR.session===null")
     assert max(ImageStat.Stat(frame(page)).stddev) > 15

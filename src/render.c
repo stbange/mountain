@@ -10,9 +10,8 @@
 #include <emscripten.h>
 /* A compositor-owned XR framebuffer has no Emscripten GLuint name.
    Preserve its actual WebGL object while drawing the lake reflection. */
-EM_JS(void, save_browser_target, (void), {
-    Module['mountainSavedTarget'] = GLctx.getParameter(GLctx.FRAMEBUFFER_BINDING);
-});
+EM_JS(void, save_browser_target, (void),
+      { Module['mountainSavedTarget'] = GLctx.getParameter(GLctx.FRAMEBUFFER_BINDING); });
 EM_JS(void, restore_browser_target, (void), {
     GLctx.bindFramebuffer(GLctx.FRAMEBUFFER, Module['mountainSavedTarget']);
     Module['mountainSavedTarget'] = null;
@@ -22,22 +21,20 @@ EM_JS(void, restore_browser_target, (void), {
 /* Core GL 2 / GLES 2 operations, resolved from the active SDL context. */
 #define FUNCTIONS(X)                                                                               \
     X(GLuint, CreateShader, (GLenum))                                                              \
-    X(void, ShaderSource, (GLuint, GLsizei, const char *const *, const GLint *)) X(                \
-        void, CompileShader, (GLuint)) X(void, GetShaderiv, (GLuint, GLenum, GLint *))             \
-        X(void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei *, char *)) X(                         \
-            GLuint, CreateProgram, (void)) X(void, AttachShader,                                   \
-                                             (GLuint, GLuint)) X(void, BindAttribLocation,         \
-                                                                 (GLuint, GLuint, const char *))   \
+    X(void, ShaderSource, (GLuint, GLsizei, const char *const *, const GLint *))                   \
+    X(void, CompileShader, (GLuint)) X(void, GetShaderiv, (GLuint, GLenum, GLint *)) X(            \
+        void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei *, char *))                              \
+        X(GLuint, CreateProgram, (void)) X(void, AttachShader, (GLuint, GLuint)) X(                \
+            void, BindAttribLocation, (GLuint, GLuint, const char *))                              \
             X(void, LinkProgram, (GLuint)) X(void, GetProgramiv, (GLuint, GLenum, GLint *)) X(     \
-                void, GetProgramInfoLog,                                                           \
-                (GLuint, GLsizei, GLsizei *,                                                       \
-                 char *)) X(void, UseProgram, (GLuint)) X(void, DeleteShader, (GLuint))            \
-                X(void, DeleteProgram, (GLuint)) X(                                                \
+                void, GetProgramInfoLog, (GLuint, GLsizei, GLsizei *, char *)) X(void, UseProgram, \
+                                                                                 (GLuint))         \
+                X(void, DeleteShader, (GLuint)) X(void, DeleteProgram, (GLuint)) X(                \
                     GLint, GetUniformLocation,                                                     \
-                    (GLuint,                                                                       \
-                     const char                                                                    \
-                         *)) X(void, UniformMatrix4fv,                                             \
-                               (GLint, GLsizei, GLboolean, const GLfloat *))                       \
+                    (                                                                              \
+                        GLuint,                                                                    \
+                        const char *)) X(void, UniformMatrix4fv,                                   \
+                                         (GLint, GLsizei, GLboolean, const GLfloat *))             \
                     X(void, Uniform1i, (GLint, GLint)) X(void, Uniform1f, (GLint, GLfloat)) X(     \
                         void,                                                                      \
                         Uniform3f,                                                                 \
@@ -107,8 +104,9 @@ typedef struct {
     GLsizei count;
 } Buffer;
 struct Display {
-    GLuint program, atlas, font, fb, frame, depth, lake_fb, lake_tex, lake_depth;
-    GLint reflect, water, viewport;
+    GLuint program, atlas, font, trail, fb, frame, depth, lake_fb, lake_tex, lake_depth;
+    GLint reflect, water, viewport, season_tint;
+    unsigned char tread[TRAIL_TEXTURE_SIZE * TRAIL_TEXTURE_SIZE];
     Mat lake_view;
     float lake_time, lake_hour;
     int lake_season, lake_weather;
@@ -256,9 +254,12 @@ Display *display_open(const char *root) {
     LOC(clock, "clock");
     LOC(reflect, "reflection");
     LOC(water, "water");
+    LOC(season_tint, "season");
     LOC(viewport, "viewport");
     qUniform1i(qGetUniformLocation(d->program, "u_atlas"), 0);
     qUniform1i(qGetUniformLocation(d->program, "u_lake"), 1);
+    qUniform1i(qGetUniformLocation(d->program, "u_trail"), 2);
+    qGenTextures(1, &d->trail);
     d->atlas = texture(root, "field.tga");
     d->font = texture(root, "letters.tga");
     if (!d->atlas || !d->font) {
@@ -277,9 +278,9 @@ void display_close(Display *d) {
     if (!d)
         return;
     GLuint buffers[] = {d->land.id, d->house.id, d->life.id, d->screen.id, d->hud.id};
-    GLuint tex[] = {d->atlas, d->font, d->frame, d->lake_tex};
+    GLuint tex[] = {d->atlas, d->font, d->frame, d->lake_tex, d->trail};
     qDeleteBuffers(5, buffers);
-    qDeleteTextures(4, tex);
+    qDeleteTextures(5, tex);
     qDeleteFramebuffers(1, &d->lake_fb);
     qDeleteRenderbuffers(1, &d->lake_depth);
     qDeleteFramebuffers(1, &d->fb);
@@ -290,6 +291,22 @@ void display_close(Display *d) {
 }
 static void scenery(Display *d, Script *s, const Game *g) {
     const Cabin *c = &g->cabin, *old = &d->cached;
+    if (!d->valid || d->seed != g->world.seed) {
+        route_texture(&g->world.route, d->tread);
+        qActiveTexture(GL_TEXTURE2);
+        qBindTexture(GL_TEXTURE_2D, d->trail);
+        texture_settings();
+        qTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        qTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+#ifdef __EMSCRIPTEN__
+        qTexImage2D(GL_TEXTURE_2D, 0, GL_R8, TRAIL_TEXTURE_SIZE, TRAIL_TEXTURE_SIZE, 0, GL_RED,
+                    GL_UNSIGNED_BYTE, d->tread);
+#else
+        qTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, TRAIL_TEXTURE_SIZE, TRAIL_TEXTURE_SIZE, 0,
+                    GL_LUMINANCE, GL_UNSIGNED_BYTE, d->tread);
+#endif
+        qActiveTexture(GL_TEXTURE0);
+    }
     bool site =
         c->present != old->present || c->x != old->x || c->z != old->z || c->angle != old->angle;
     int cx = (int)floorf((g->x + 14) / 28) * 28, cz = (int)floorf((g->z + 14) / 28) * 28;
@@ -454,6 +471,7 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
     qUniform3f(d->zenith, zen.r, zen.g, zen.b);
     qUniform4f(d->air, g->hour, day, warm, (float)g->weather);
     qUniform1f(d->clock, g->elapsed);
+    qUniform1f(d->season_tint, (float)g->season);
     lake_reflection(d, g, vp, p, view);
     camera(d, p, view);
     outdoor(d, vp);
@@ -470,9 +488,7 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
     }
     draw(d->house);
 }
-static Vec pixel(float x, float y, int w, int h) {
-    return (Vec){x * 2 / w - 1, 1 - y * 2 / h, 0};
-}
+static Vec pixel(float x, float y, int w, int h) { return (Vec){x * 2 / w - 1, 1 - y * 2 / h, 0}; }
 static void label(Mesh *m, const char *text, int x, int y, int w, int h, Color col) {
     for (const unsigned char *p = (const unsigned char *)text; *p; p++, x += 6) {
         unsigned ch = *p < 128 ? *p : '?';
@@ -489,7 +505,9 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
     snprintf(title, sizeof title, "%s",
              g->cabin.inside ? room_name(s, g->cabin.room) : trail_name(g));
     snprintf(line, sizeof line, "%02d:%02d   %s   %s", time / 60, time % 60,
-             g->rules->seasons[g->season], g->rules->skies[g->weather]);
+             g->rules->seasons[g->season],
+             g->season == 3 && g->weather == 2 ? g->rules->winter_precipitation
+                                               : g->rules->skies[g->weather]);
     const char *actions[] = {"WASD HIKE  /  P PHOTO  /  H CABIN  /  F1 GUIDE",
                              "E  OPEN DOOR",
                              "E  STEP INSIDE",
@@ -513,11 +531,13 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
                                "E: open / use nearest door",
                                "R: return to hearth room",
                                "T: time   Y: season   U: weather",
-                               "N: new trail   M: sound   P: photo",
+                               "I: cycle seasons   O: weather changes",
+                               "N: new trail   B: Taggart Lake",
+                               "M: sound   P: photo",
                                "F1: close guide   Esc: release mouse"};
-        quad(m, pixel(6, 36, w, h), pixel(244, 36, w, h), pixel(244, 139, w, h),
-             pixel(6, 139, w, h), ink, 0);
-        for (int i = 0; i < 9; i++)
+        quad(m, pixel(6, 36, w, h), pixel(244, 36, w, h), pixel(250, 158, w, h),
+             pixel(6, 158, w, h), ink, 0);
+        for (int i = 0; i < (int)(sizeof lines / sizeof *lines); i++)
             label(m, lines[i], 12, 43 + i * 10, w, h, cream);
     }
     upload(&d->hud, m, GL_DYNAMIC_DRAW);

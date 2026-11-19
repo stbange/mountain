@@ -9,6 +9,8 @@
 #define SEASONS 4
 #define WEATHERS 4
 #define TRAILS 8
+#define ROUTE_POINTS 512
+#define TRAIL_TEXTURE_SIZE 512
 
 typedef struct {
     float x, y, z;
@@ -23,15 +25,37 @@ typedef struct {
     float x, z, h, rx, rz, angle;
 } Peak;
 typedef struct {
+    unsigned char *data;
+    unsigned side;
+    float cell, scale, surface, bearing;
     uint32_t seed;
-    float phase, water, relief;
+    char name[48], region[48], file[96];
+    int shore[4];
+} Survey;
+typedef struct {
+    float x, z;
+} Place;
+typedef struct {
+    Place point[ROUTE_POINTS];
+    int count, overlook;
+    Place sight[2];
+    float length;
+} Route;
+typedef struct {
+    uint32_t seed;
+    const Survey *survey;
+    Route route;
+    float phase, water, relief, meadow_level;
     Peak peaks[RIDGES];
 } World;
 typedef struct {
-    float hour, clock_rate, pace, relief, water, weather_interval;
+    float hour, clock_rate, pace, relief, water, weather_interval, season_interval;
+    Survey survey;
     uint32_t seed;
     int season, weather;
     char trails[TRAILS][48], seasons[SEASONS][24], skies[WEATHERS][24];
+    int field_tiles[SEASONS][2];
+    char winter_precipitation[24];
     Color meadow[SEASONS], forest[SEASONS];
 } Rules;
 typedef struct {
@@ -48,10 +72,20 @@ typedef struct {
     World world;
     const Rules *rules;
     Cabin cabin;
-    float x, z, yaw, pitch, hour, elapsed, weather_clock, walked;
+    float x, z, yaw, pitch, hour, elapsed, weather_clock, season_clock, walked;
+    bool cycle_seasons, changing_weather;
     int season, weather;
 } Game;
-typedef enum { ACT_CABIN = 1, ACT_USE, ACT_TIME, ACT_SEASON, ACT_WEATHER, ACT_HOME } Action;
+typedef enum {
+    ACT_CABIN = 1,
+    ACT_USE,
+    ACT_TIME,
+    ACT_SEASON,
+    ACT_WEATHER,
+    ACT_HOME,
+    ACT_CYCLE_SEASONS,
+    ACT_CHANGING_WEATHER
+} Action;
 typedef enum { NEAR_NONE, NEAR_OPEN, NEAR_ENTER, NEAR_EXIT, NEAR_NEXT, NEAR_BACK } Interaction;
 
 float clampf(float v, float lo, float hi);
@@ -66,7 +100,17 @@ Color shade(Color c, float light);
 void world_init(World *w, uint32_t seed, const Rules *rules);
 bool world_tree(const World *w, int i, int j, Tree *tree);
 float height_at(const World *w, float x, float z);
-float trail_x(const World *w, float z);
+bool survey_load(Survey *s, const char *root);
+float survey_height(const Survey *s, float x, float z);
+bool survey_lake(const Survey *s, float x, float z);
+float water_at(const World *w, float x, float z);
+void route_generate(World *w);
+float trail_bearing(const World *w);
+float route_distance(const Route *r, float x, float z);
+void route_texture(const Route *r, unsigned char *pixels);
+void select_season(Game *g, int season);
+void select_weather(Game *g, int weather);
+bool insects_active(const Game *g);
 float sunlight_factor(float hour);
 float alpenglow(float hour);
 void game_init(Game *g, const Rules *rules, uint32_t seed);

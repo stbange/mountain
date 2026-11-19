@@ -1039,3 +1039,57 @@ p {
     transition-duration: 0.01ms !important;
   }
 }
+
+.facts #change-season {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  color: inherit;
+  text-shadow: inherit;
+}
+#change-season .i-chevron {
+  width: 10px;
+  height: 10px;
+}
+.climate-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #405746;
+  font-size: 13px;
+}
+.climate-mode input {
+  accent-color: #355d45;
+  width: 16px;
+  height: 16px;
+}
+.route-legend {
+  color: #405344;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 10px 0 5px;
+}
+.map-destinations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 660px) {
+  .weather-control #clock,
+  .weather-control #skies,
+  .weather-control .pip {
+    display: none;
+  }
+  .weather-control {
+    font-size: 11px;
+  }
+}
+@media (max-width: 440px) {
+  .compass {
+    width: 66px;
+    left: 44%;
+  }
+}

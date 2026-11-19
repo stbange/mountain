@@ -56,21 +56,38 @@ PUBLIC int mountain_sound(void) {
         sound_on = SDL_ResumeAudioStreamDevice(audio);
     return sound_on;
 }
-PUBLIC int mountain_action(int action) {
-    return game_action(&game, (Action)action);
-}
+PUBLIC int mountain_action(int action) { return game_action(&game, (Action)action); }
 PUBLIC void mountain_input(float forward, float right) {
     input_f = clampf(forward, -1, 1);
     input_r = clampf(right, -1, 1);
 }
-PUBLIC void mountain_look(float yaw, float pitch) {
-    game_look(&game, yaw, pitch);
-}
+PUBLIC void mountain_look(float yaw, float pitch) { game_look(&game, yaw, pitch); }
 PUBLIC void mountain_conditions(int season, int weather, float hour) {
     game_conditions(&game, season, weather, hour);
 }
+PUBLIC void mountain_select(int kind, int choice) {
+    if (kind)
+        select_weather(&game, choice);
+    else
+        select_season(&game, choice);
+}
+PUBLIC double mountain_path(int index, int axis) {
+    const Route *r = &game.world.route;
+    if (index < 0 || index >= r->count)
+        return 0;
+    return axis ? r->point[index].z : r->point[index].x;
+}
+PUBLIC int mountain_wet(float x, float z) {
+    return height_at(&game.world, x, z) < water_at(&game.world, x, z);
+}
 PUBLIC void mountain_seed(uint32_t seed) {
+    int season = game.season, weather = game.weather;
+    float hour = game.hour;
+    bool cycle = game.cycle_seasons, changing = game.changing_weather;
     game_init(&game, &scripts.rules, seed);
+    game_conditions(&game, season, weather, hour);
+    game.cycle_seasons = cycle;
+    game.changing_weather = changing;
 }
 PUBLIC void mountain_pause(int state) {
     paused = state != 0;
@@ -78,26 +95,28 @@ PUBLIC void mountain_pause(int state) {
 }
 PUBLIC const char *mountain_label(int key) {
     switch (key) {
+    case 4:
+        return scripts.rules.survey.name;
+    case 5:
+        return scripts.rules.survey.region;
     case 0:
         return trail_name(&game);
     case 1:
         return game.rules->seasons[game.season];
     case 2:
-        return game.rules->skies[game.weather];
+        return mountain_option(1, game.weather);
     default:
         return room_name(&scripts, game.cabin.room);
     }
 }
 PUBLIC const char *mountain_option(int kind, int index) {
+    if (kind && game.season == 3 && index == 2)
+        return game.rules->winter_precipitation;
     return kind ? game.rules->skies[(unsigned)index % WEATHERS]
                 : game.rules->seasons[(unsigned)index % SEASONS];
 }
-PUBLIC float mountain_height(float x, float z) {
-    return height_at(&game.world, x, z);
-}
-PUBLIC float mountain_water(void) {
-    return game.world.water;
-}
+PUBLIC float mountain_height(float x, float z) { return height_at(&game.world, x, z); }
+PUBLIC float mountain_water(void) { return game.world.water; }
 PUBLIC double mountain_value(int key) {
     switch (key) {
     case 0:
@@ -117,7 +136,9 @@ PUBLIC double mountain_value(int key) {
     case 7:
         return game.world.seed;
     case 8:
-        return floorf(1640 + eye(&game).y - 1.65f);
+        return game.world.survey ? floorf(game.world.survey->surface +
+                                          (eye(&game).y - 1.65f) * game.world.survey->scale)
+                                 : floorf(1640 + eye(&game).y - 1.65f);
     case 9:
         return game.cabin.present;
     case 10:
@@ -134,6 +155,22 @@ PUBLIC double mountain_value(int key) {
         return game.walked;
     case 16:
         return game.elapsed;
+    case 18:
+        return game.cycle_seasons;
+    case 19:
+        return game.changing_weather;
+    case 20:
+        return game.world.route.count;
+    case 21:
+        return game.world.route.overlook;
+    case 22:
+        return game.world.route.length;
+    case 23:
+        return scripts.rules.survey.seed;
+    case 24:
+        return game.world.survey ? game.world.survey->scale : 1;
+    case 25:
+        return scripts.rules.survey.data != NULL;
     default:
         return display != NULL;
     }
@@ -151,9 +188,7 @@ PUBLIC void mountain_xr_active(int enabled) {
     immersive = enabled != 0;
     input_f = input_r = 0;
 }
-PUBLIC void mountain_walk(float dt, float f, float r) {
-    game_tick(&game, dt, f, r);
-}
+PUBLIC void mountain_walk(float dt, float f, float r) { game_tick(&game, dt, f, r); }
 PUBLIC void mountain_xr_eye(const Mat *projection, const Mat *view, int x, int y, int w, int h) {
     display_draw(display, &scripts, &game, (Viewport){x, y, w, h}, projection, view);
 }
@@ -192,6 +227,16 @@ static void key(SDL_Keycode k) {
         break;
     case SDLK_U:
         mountain_action(ACT_WEATHER);
+        break;
+    case SDLK_I:
+        mountain_action(ACT_CYCLE_SEASONS);
+        break;
+    case SDLK_O:
+        mountain_action(ACT_CHANGING_WEATHER);
+        break;
+    case SDLK_B:
+        if (scripts.rules.survey.data)
+            mountain_seed(scripts.rules.survey.seed);
         break;
     case SDLK_N:
         mountain_seed(SDL_rand_bits());

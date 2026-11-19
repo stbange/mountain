@@ -89,11 +89,10 @@ void sprite(Mesh *m, float x, float y, float z, float width, float height, float
     c.y += height;
     d.y += height;
     float u = (tile % 4) * .25f, v = (tile / 4) * .25f;
-    tex_quad(m, a, b, c, d, u + .00035f, v + .00035f, u + .24965f, v + .24965f, tint, 1);
+    tex_quad(m, a, b, c, d, u + .00035f, v + .00035f, u + .24965f, v + .24965f, tint,
+             tile == 7 ? 1.f : 1.25f);
 }
-Mat identity(void) {
-    return (Mat){{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
-}
+Mat identity(void) { return (Mat){{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}}; }
 Mat multiply(Mat a, Mat b) {
     Mat r = {0};
     for (int col = 0; col < 4; col++)

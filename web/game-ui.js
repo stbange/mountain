@@ -89,7 +89,9 @@ function refresh() {
   $("location").textContent = inside ? nameOf(3) : nameOf(0);
   $("biome").textContent = inside
     ? "Cabin · Room " + (val(12) + 1)
-    : "Alpine trail";
+    : val(25) && val(7) === val(23)
+      ? nameOf(5) + " · Alpine trail"
+      : "Alpine trail";
   $("height").textContent = Math.round(val(8)).toLocaleString() + " m";
   $("season").textContent = nameOf(1);
   $("clock").textContent = timeText(h);
@@ -227,12 +229,33 @@ function conditions() {
         [kind, i],
       ),
     );
-  choose(content, "Season", options(0, 4), val(5), (i) =>
-    Module._mountain_conditions(i, val(6), val(4)),
+  const modeControl = (label, key, action) => {
+    const row = el("label", null, "climate-mode");
+    const input = el("input", null);
+    input.type = "checkbox";
+    input.checked = Boolean(val(key));
+    input.onchange = () => {
+      act(action);
+      input.checked = Boolean(val(key));
+    };
+    row.append(input, document.createTextNode(label));
+    content.append(row);
+    return input;
+  };
+  choose(content, "Season", options(0, 4), val(5), (i) => {
+    Module._mountain_select(0, i);
+    cycle.checked = false;
+    weatherGroup.children[2].textContent = options(1, 4)[2];
+  });
+  const cycle = modeControl("Cycle through seasons", 18, 7);
+  choose(content, "Weather", options(1, 4), val(6), (i) => {
+    Module._mountain_select(1, i);
+    changing.checked = false;
+  });
+  const weatherGroup = content.querySelector(
+    '[role="group"][aria-label="Weather"]',
   );
-  choose(content, "Weather", options(1, 4), val(6), (i) =>
-    Module._mountain_conditions(val(5), i, val(4)),
-  );
+  const changing = modeControl("Let the weather change", 19, 8);
   const field = el("div", null, "field"),
     top = el("div", null, "spread"),
     l = el("label", "Time of day");
@@ -272,10 +295,22 @@ function topography(map) {
     w = map.width,
     h = map.height,
     nx = 82,
-    ny = 49,
-    step = 6;
-  const ox = val(0),
-    oz = val(1),
+    ny = 45;
+  const trail = Array.from({ length: val(20) }, (_, i) => [
+    Module._mountain_path(i, 0),
+    Module._mountain_path(i, 1),
+  ]);
+  const hiker = [val(0), val(1)];
+  const coordinates = [...trail, hiker],
+    xs = coordinates.map((p) => p[0]),
+    zs = coordinates.map((p) => p[1]);
+  const minX = Math.min(...xs),
+    maxX = Math.max(...xs),
+    minZ = Math.min(...zs),
+    maxZ = Math.max(...zs);
+  const step = Math.max(2.75, (maxX - minX + 56) / nx, (maxZ - minZ + 52) / ny);
+  const ox = (minX + maxX) / 2,
+    oz = (minZ + maxZ) / 2,
     alt = new Float32Array((nx + 1) * (ny + 1));
   for (let j = 0; j <= ny; j++)
     for (let i = 0; i <= nx; i++)
@@ -290,14 +325,16 @@ function topography(map) {
       const k = j * (nx + 1) + i,
         levels = [alt[k], alt[k + 1], alt[k + nx + 2], alt[k + nx + 1]],
         v = levels.reduce((a, b) => a + b, 0) / 4;
-      ctx.fillStyle =
-        v < Module._mountain_water()
-          ? "#9bb8ad"
-          : v > 95
-            ? "#c6bf9c"
-            : v > 40
-              ? "#d4d3aa"
-              : "#e0ddbb";
+      ctx.fillStyle = Module._mountain_wet(
+        ox + (i + 0.5 - nx / 2) * step,
+        oz + (j + 0.5 - ny / 2) * step,
+      )
+        ? "#9bb8ad"
+        : v > 95
+          ? "#c6bf9c"
+          : v > 40
+            ? "#d4d3aa"
+            : "#e0ddbb";
       ctx.fillRect(i * sx, j * sy, sx + 1, sy + 1);
       for (
         let level = Math.ceil(Math.min(...levels) / 8) * 8;
@@ -330,8 +367,41 @@ function topography(map) {
         }
       }
     }
+  const project = ([x, z]) => [
+    ((x - ox) / step) * sx + w / 2,
+    ((z - oz) / step) * sy + h / 2,
+  ];
+  ctx.lineJoin = ctx.lineCap = "round";
+  ctx.beginPath();
+  trail
+    .map(project)
+    .forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.lineWidth = 5.4;
+  ctx.strokeStyle = "#fff4d8";
+  ctx.stroke();
+  ctx.lineWidth = 2.7;
+  ctx.strokeStyle = "#a14e33";
+  ctx.stroke();
+  for (const [index, label] of [
+    [val(21), "1"],
+    [trail.length - 1, "2"],
+  ]) {
+    const [x, y] = project(trail[index]);
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, 2 * Math.PI);
+    ctx.fillStyle = "#83422d";
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#fff8df";
+    ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.font = "bold 11px sans-serif";
+    ctx.fillStyle = "#fff8df";
+    ctx.fillText(label, x, y + 4);
+  }
+  ctx.textAlign = "left";
   ctx.save();
-  ctx.translate(w / 2, h / 2);
+  ctx.translate(...project(hiker));
   ctx.rotate(val(2));
   ctx.fillStyle = "#2d5344";
   ctx.strokeStyle = "#fff6df";
@@ -354,20 +424,17 @@ function trailMap() {
   const map = el("canvas", null, "map-frame");
   map.width = 490;
   map.height = 260;
-  map.setAttribute("aria-label", "Contour map centred on the hiker");
+  map.setAttribute(
+    "aria-label",
+    "Contour map showing your position and the marked trail to Lakeside View and Ridge Lookout",
+  );
   content.append(map);
   topography(map);
+  content.append(el("p", "① Lakeside View　 ② Ridge Lookout", "route-legend"));
   const details = el("div", null, "map-details");
   details.append(
-    el(
-      "span",
-      "Position · " +
-        Math.round(val(0)) +
-        " m E, " +
-        Math.round(-val(1)) +
-        " m N",
-    ),
-    el("span", "Contour interval 8 m"),
+    el("span", Math.round(val(22) * val(24)).toLocaleString() + " m trail"),
+    el("span", "Contours every " + 8 * val(24) + " m"),
   );
   content.append(details);
   const form = el("form", null, "field");
@@ -398,7 +465,18 @@ function trailMap() {
     e.preventDefault();
     if (form.reportValidity()) start(Number(input.value));
   };
-  content.append(
+  const destinations = el("div", null, "map-destinations");
+  if (val(25))
+    destinations.append(
+      button(
+        nameOf(4) + " · " + nameOf(5),
+        "action",
+        () => start(val(23)),
+        "map",
+      ),
+    );
+  content.append(destinations);
+  destinations.append(
     button(
       "Generate a new mountain",
       "action primary",
@@ -413,6 +491,7 @@ function guide() {
   const entries = touch
     ? [
         ["Walk", "Move the thumb pad"],
+        ["Season and weather", "Tap the sky control"],
         ["Look around", "Drag the landscape"],
         ["Call your cabin", "Summon cabin in the trail kit"],
         ["Enter or explore rooms", "Tap the door prompt"],
@@ -425,6 +504,7 @@ function guide() {
         ["Open a door or cross it", "E · near a doorway"],
         ["Return to the hearth room", "R · indoors"],
         ["Camera / take photograph", "C / P"],
+        ["Season and weather", "Click the sky control or press V"],
         ["Sound / close panel", "M / Esc"],
       ];
   for (const pair of entries) {
@@ -605,6 +685,7 @@ function journal() {
 $("map").onclick = trailMap;
 $("guide").onclick = guide;
 $("conditions").onclick = conditions;
+$("change-season").onclick = conditions;
 $("journal").onclick = journal;
 $("brand").onclick = (e) => {
   e.preventDefault();
@@ -684,6 +765,10 @@ window.addEventListener("keydown", (e) => {
     p: capture,
     m: () => $("sound").click(),
     g: guide,
+    v: conditions,
+    y: () => act(4),
+    u: () => act(5),
+    t: () => act(3),
     escape: () => mode(false),
   };
   if (actions[k]) {

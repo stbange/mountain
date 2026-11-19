@@ -6,17 +6,29 @@ void game_init(Game *g, const Rules *r, uint32_t seed) {
     memset(g, 0, sizeof *g);
     g->rules = r;
     world_init(&g->world, seed, r);
-    g->yaw = .035f;
-    g->pitch = .048f;
+    g->changing_weather = true;
+    g->yaw = trail_bearing(&g->world);
+    g->pitch = g->world.survey ? -.008f : .04f;
     game_conditions(g, r->season, r->weather, r->hour);
 }
 void game_conditions(Game *g, int season, int weather, float hour) {
     g->season = ((season % SEASONS) + SEASONS) % SEASONS;
     g->weather = ((weather % WEATHERS) + WEATHERS) % WEATHERS;
     g->hour = fmodf(fmodf(hour, 24) + 24, 24);
+}
+void select_season(Game *g, int season) {
+    g->season = ((season % SEASONS) + SEASONS) % SEASONS;
+    g->cycle_seasons = false;
+    g->season_clock = 0;
+}
+void select_weather(Game *g, int weather) {
+    g->weather = ((weather % WEATHERS) + WEATHERS) % WEATHERS;
+    g->changing_weather = false;
     g->weather_clock = 0;
 }
 const char *trail_name(const Game *g) {
+    if (g->world.survey)
+        return g->world.survey->name;
     return g->rules->trails[g->world.seed % TRAILS];
 }
 Vec cabin_world(const Cabin *c, float x, float y, float z) {
@@ -40,7 +52,9 @@ float ground(const Game *g, float x, float z) {
     return h;
 }
 Vec eye(const Game *g) {
-    float h = g->cabin.inside ? g->cabin.y : fmaxf(g->world.water - .25f, ground(g, g->x, g->z));
+    float h = g->cabin.inside
+                  ? g->cabin.y
+                  : fmaxf(water_at(&g->world, g->x, g->z) - .25f, ground(g, g->x, g->z));
     return (Vec){g->x, h + 1.65f, g->z};
 }
 void game_look(Game *g, float dx, float dy) {
@@ -140,8 +154,8 @@ bool game_action(Game *g, Action action) {
         c->z = g->z - cosf(g->yaw) * 10.8f;
         {
             Vec threshold = cabin_world(c, 0, 0, 4);
-            c->y =
-                fmaxf(g->world.water + .24f, height_at(&g->world, threshold.x, threshold.z) + .17f);
+            c->y = fmaxf(water_at(&g->world, threshold.x, threshold.z) + .24f,
+                         height_at(&g->world, threshold.x, threshold.z) + .17f);
         }
         grove_support(g);
         return true;
@@ -162,10 +176,17 @@ bool game_action(Game *g, Action action) {
         g->hour = fmodf(g->hour + 4, 24);
         return true;
     case ACT_SEASON:
-        g->season = (g->season + 1) % SEASONS;
+        select_season(g, g->season + 1);
         return true;
     case ACT_WEATHER:
-        g->weather = (g->weather + 1) % WEATHERS;
+        select_weather(g, g->weather + 1);
+        return true;
+    case ACT_CYCLE_SEASONS:
+        g->cycle_seasons = !g->cycle_seasons;
+        g->season_clock = 0;
+        return true;
+    case ACT_CHANGING_WEATHER:
+        g->changing_weather = !g->changing_weather;
         g->weather_clock = 0;
         return true;
     default:
@@ -206,8 +227,15 @@ void game_tick(Game *g, float dt, float f, float r) {
     dt = clampf(dt, 0, .20f);
     g->elapsed += dt;
     g->hour = fmodf(g->hour + dt * g->rules->clock_rate, 24);
-    g->weather_clock += dt;
-    if (g->weather_clock >= g->rules->weather_interval) {
+    if (g->cycle_seasons)
+        g->season_clock += dt;
+    if (g->cycle_seasons && g->season_clock >= g->rules->season_interval) {
+        g->season = (g->season + 1) % SEASONS;
+        g->season_clock = 0;
+    }
+    if (g->changing_weather)
+        g->weather_clock += dt;
+    if (g->changing_weather && g->weather_clock >= g->rules->weather_interval) {
         unsigned pick = hash32(g->world.seed + (uint32_t)g->elapsed);
         g->weather = (g->weather + 1 + (int)(pick % 3)) % WEATHERS;
         g->weather_clock = 0;

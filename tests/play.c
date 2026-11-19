@@ -21,6 +21,30 @@ static void walk(int frames, float forward, float right) {
     for (int i = 0; i < frames; i++)
         mountain_walk(.05f, forward, right);
 }
+static bool walk_route(uint32_t seed) {
+    mountain_seed(seed);
+    int count = (int)mountain_value(20), stop = (int)mountain_value(21);
+    REQUIRE(stop > 0 && stop < count - 1);
+    for (int i = 1; i < count; i++) {
+        double x = mountain_path(i, 0), z = mountain_path(i, 1);
+        double dx = x - mountain_value(0), dz = z - mountain_value(1);
+        mountain_look((float)(atan2(dx, -dz) - mountain_value(2)), 0);
+        double length = hypot(dx, dz), remaining = length;
+        while (remaining > .0001) {
+            double step = fmin(remaining, .8);
+            mountain_walk((float)(step / 5.3), 1, 0);
+            remaining -= step;
+            REQUIRE(!mountain_wet((float)mountain_value(0), (float)mountain_value(1)));
+        }
+        REQUIRE(hypot(x - mountain_value(0), z - mountain_value(1)) < .005);
+        if (i == stop || i == count - 1) {
+            mountain_frame();
+            REQUIRE(display_sample(480, 300) != 0);
+        }
+    }
+    REQUIRE(fabs(mountain_value(15) - mountain_value(22)) < .02);
+    return true;
+}
 static bool run(void) {
     mountain_frame();
     uint32_t trail = display_sample(480, 300);
@@ -58,6 +82,8 @@ static bool run(void) {
     mountain_frame();
     REQUIRE(display_sample(480, 300) != trail);
     REQUIRE(mountain_photo());
+    REQUIRE(walk_route((uint32_t)mountain_value(23)));
+    REQUIRE(walk_route(4812));
     return true;
 }
 int main(int argc, char **argv) {
