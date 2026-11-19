@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f5f1e5" />
+    <meta
+      name="description"
+      content="A quiet hiking game. Walk a living alpine trail, photograph the light, and call a cabin home."
+    />
+    <title>Mountain · Alpine Trails</title>
+    <link rel="icon" href="ui/mark.png" />
+    <link rel="stylesheet" href="ui/symbols.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <a
+        id="brand"
+        class="brand"
+        href="#trail"
+        aria-label="Mountain, return to the trail"
+        ><img src="ui/mark.png" alt="" /><span>Mountain</span></a
+      >
+      <nav aria-label="Game views">
+        <button id="explore" class="nav selected">
+          <i class="icon i-compass"></i>Explore</button
+        ><button id="journal" class="nav">
+          <i class="icon i-journal"></i>Photo journal <span id="count">0</span>
+        </button>
+      </nav>
+      <div class="utilities">
+        <button id="guide" class="guide">
+          <i class="icon i-book"></i><span>Field guide</span></button
+        ><span class="rule"></span
+        ><button
+          id="sound"
+          class="square"
+          aria-label="Enable ambient sound"
+          title="Ambient sound (M)"
+        >
+          <i class="icon i-mute"></i></button
+        ><button
+          id="full"
+          class="square"
+          aria-label="Enter fullscreen"
+          title="Fullscreen"
+        >
+          <i class="icon i-expand"></i>
+        </button>
+      </div>
+    </header>
+    <main id="viewport" class="viewport">
+      <canvas
+        id="canvas"
+        tabindex="0"
+        aria-label="Mountain landscape. Move with WASD or arrow keys and drag to look."
+      ></canvas>
+      <div class="shading"></div>
+      <button id="map" class="glass map-control">
+        <i class="icon i-map"></i><span>Trail map</span>
+      </button>
+      <div id="compass" class="compass" aria-label="Compass heading">
+        <div id="bearing"></div>
+        <b></b>
+      </div>
+      <button id="conditions" class="glass weather-control">
+        <i id="sky-icon" class="icon i-sun"></i><span id="skies">Clear</span
+        ><span class="pip">·</span><time id="clock">16:39</time
+        ><i class="icon i-chevron small"></i>
+      </button>
+      <div id="place" class="place">
+        <div class="eyebrow">
+          <span></span><strong id="biome">Alpine trail</strong>
+        </div>
+        <h1 id="location">Larkspur Ridge</h1>
+        <div class="facts">
+          <span><i class="icon i-altitude"></i><b id="height">— m</b></span
+          ><em></em
+          ><span><i class="icon i-leaf"></i><b id="season">Summer</b></span>
+        </div>
+      </div>
+      <button id="use" class="use" hidden>
+        <i class="icon i-door"></i><span></span><kbd>E</kbd>
+      </button>
+      <div id="viewfinder" hidden aria-hidden="true">
+        <b></b><b></b><b></b><b></b>
+        <div id="thirds" hidden></div>
+      </div>
+      <div id="pad" aria-label="Touch movement pad"><span></span></div>
+      <div id="flash"></div>
+      <div id="toast" role="status" aria-live="polite"></div>
+      <div id="loading" role="status">
+        <img src="ui/mark.png" alt="" />
+        <p>Opening the trail…</p>
+      </div>
+    </main>
+    <footer id="kit" class="kit">
+      <div id="hints" class="hints">
+        <span class="desktop"
+          ><span class="key-row"
+            ><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span
+          >
+          Move</span
+        ><span class="desktop"><i class="icon i-look"></i> Drag to look</span
+        ><span class="touch-hint"
+          ><i class="icon i-compass"></i> Drag to explore</span
+        >
+      </div>
+      <div class="tools">
+        <button id="cabin" class="action">
+          <i class="icon i-cabin"></i><span>Summon cabin</span
+          ><kbd>H</kbd></button
+        ><button id="camera" class="action primary">
+          <i class="icon i-camera"></i><span>Camera</span><kbd>C</kbd>
+        </button>
+      </div>
+    </footer>
+    <footer id="camera-kit" class="kit camera-kit" hidden>
+      <button id="leave-camera" class="plain">
+        <i class="icon i-back"></i>Back to hike</button
+      ><button id="shutter" class="action primary">
+        <i class="icon i-shutter"></i>Take photo <kbd>P</kbd></button
+      ><button id="grid" class="plain" aria-pressed="false">
+        <i class="icon i-grid"></i><span>Grid</span>
+      </button>
+    </footer>
+    <dialog id="sheet">
+      <div class="sheet-head">
+        <div class="eyebrow dark">
+          <span></span><strong id="sheet-category"></strong>
+        </div>
+        <button id="close" class="square" aria-label="Close panel">
+          <i class="icon i-close"></i>
+        </button>
+      </div>
+      <h2 id="sheet-title"></h2>
+      <div id="content"></div>
+    </dialog>
+    <script src="game-ui.js"></script>
+    <script src="xr.js"></script>
+    <script src="mountain.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+[
+  "assets/CREDITS.txt",
+  "assets/LICENSE-ART.txt",
+  "assets/art/field.tga",
+  "assets/art/letters.tga",
+  "assets/scripts/cabin.lua",
+  "assets/scripts/world.lua",
+  "assets/shaders/ridge.frag",
+  "assets/shaders/ridge.vert",
+  "assets/sound/ridge.wav"
+]
