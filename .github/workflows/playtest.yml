@@ -1,0 +1,109 @@
+name: Mountain playtest
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mountain-main-playtest
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install graphics and audio development headers
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxfixes-dev libxcursor-dev libxi-dev libxss-dev libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev libasound2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate OpenSpec
+        run: npx --yes @fission-ai/openspec@2.1.0 validate --all --strict
+        env:
+          OPENSPEC_TELEMETRY: '0'
+      - name: Build instrumented tests
+        run: |
+          cmake -S . -B build-test -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMOUNTAIN_COVERAGE=ON
+          cmake --build build-test --parallel 3
+      - name: Unit coverage and live game
+        env:
+          SDL_VIDEO_DRIVER: offscreen
+          EGL_PLATFORM: surfaceless
+          SDL_AUDIO_DRIVER: dummy
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          ctest --test-dir build-test -R '^unit$' --output-on-failure
+          python3 tools/coverage.py build-test
+          ctest --test-dir build-test -R '^(lua-content|game)$' -V
+      - name: Build playable Linux release
+        run: |
+          cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMOUNTAIN_TESTS=OFF -DFETCHCONTENT_SOURCE_DIR_SDL="$PWD/build-test/_deps/sdl-src" -DFETCHCONTENT_SOURCE_DIR_LUA="$PWD/build-test/_deps/lua-src"
+          cmake --build build-release --parallel 3
+          tar -czf Mountain-Linux-x86_64.tar.gz -C build-release/play .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mountain-Linux-x86_64
+          path: Mountain-Linux-x86_64.tar.gz
+  windows:
+    runs-on: windows-2022
+    env:
+      SDL_AUDIO_DRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build Windows release and tests
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 3
+      - name: Supply software OpenGL for the headless runner
+        shell: pwsh
+        run: |
+          $pkg = "$env:RUNNER_TEMP/mesa.7z"
+          Invoke-WebRequest https://github.com/pal1000/mesa-dist-win/releases/download/26.3.0/mesa3d-26.3.0-release-msvc.7z -OutFile $pkg
+          if ((Get-FileHash $pkg).Hash.ToLower() -ne "c505fcc77e8f63a09d7ddac086591d2f542c0698d37fc9e3094685a34d0d9991") { throw "Mesa hash mismatch" }
+          7z x $pkg "-o$env:RUNNER_TEMP/mesa" -y | Out-Null
+          $driver = Get-ChildItem "$env:RUNNER_TEMP/mesa" -Recurse -Filter opengl32.dll | Where-Object { $_.Directory.Name -eq 'x64' } | Select-Object -First 1
+          if (!$driver) { throw "Headless OpenGL driver missing" }
+          Copy-Item "$($driver.Directory.FullName)/*.dll" build/
+          $env:SDL_OPENGL_LIBRARY = (Resolve-Path build/opengl32.dll).Path
+          ctest --test-dir build --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mountain-Windows-x64
+          path: build/play/
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.20
+      - name: Build WebAssembly game
+        run: |
+          emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DMOUNTAIN_TESTS=OFF
+          cmake --build build-web --parallel 3
+      - name: Test the browser, touch and stereo paths
+        run: |
+          python3 -m pip install -r tests/requirements.txt
+          python3 -m playwright install --with-deps chromium
+          python3 tests/browser.py build-web/play
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mountain-Web
+          path: build-web/play/
+          include-hidden-files: true
+  publish:
+    needs: [linux, windows, web]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Mountain-Web
+          path: dist
+      - name: Update the build-only gh-page branch
+        run: bash tools/publish-web.sh dist
