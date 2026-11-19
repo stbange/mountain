@@ -22,7 +22,13 @@ jobs:
             dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'install ok installed' || missing+=("$pkg")
           done
           if (( ${#missing[@]} )); then
-            sudo apt-get install -y --no-install-recommends "${missing[@]}" || { sudo apt-get update && sudo apt-get install -y --no-install-recommends "${missing[@]}"; }
+            # Regional EC2 mirrors can stall on individual graphics packages.
+            # Use the signed Ubuntu archives over HTTPS for this job.
+            sources="$RUNNER_TEMP/mountain-ubuntu.list"
+            printf '%s\n' 'deb https://archive.ubuntu.com/ubuntu noble main universe' 'deb https://archive.ubuntu.com/ubuntu noble-updates main universe' 'deb https://security.ubuntu.com/ubuntu noble-security main universe' > "$sources"
+            options=(-o "Dir::Etc::sourcelist=$sources" -o "Dir::Etc::sourceparts=-" -o Acquire::Retries=2 -o Acquire::https::Timeout=20)
+            sudo apt-get "${options[@]}" update
+            sudo apt-get "${options[@]}" install -y --no-install-recommends "${missing[@]}"
           fi
       - uses: actions/setup-node@v4
         with:
