@@ -3,9 +3,12 @@ varying vec3 v_colour;
 varying vec3 v_uvm;
 varying float v_dist;
 uniform sampler2D u_atlas;
+uniform sampler2D u_canopy;
 uniform sampler2D u_lake;
 uniform sampler2D u_trail;
 uniform float u_season;
+uniform vec3 u_trail_center;
+uniform vec3 u_pattern;
 uniform int u_reflection;
 uniform float u_water;
 uniform vec4 u_viewport;
@@ -61,26 +64,35 @@ void main() {
     }
     float dist=length(v_pos-u_eye);
     float mat=v_uvm.z;
+    vec2 groundUV=mod(v_pos.xz+u_pattern.xz,4096.0);
     if(u_reflection==1 && (v_pos.y<u_water || (mat>1.5 && mat<2.5))) discard;
     vec3 col=v_colour;
     if(mat>.5 && mat<1.5) {
-        vec4 spr=texture2D(u_atlas,v_uvm.xy); if(spr.a<.48) discard;
+        vec4 spr=mat>1.4?texture2D(u_canopy,v_uvm.xy):texture2D(u_atlas,v_uvm.xy); if(spr.a<.48) discard;
         col*=spr.rgb;
     } else if(mat>1.5 && mat<2.5) {
-        float ribbon=noise(vec2(v_pos.x*.14+u_clock*.16,v_pos.z*1.65+u_clock*.085));
+        float ribbon=noise(vec2(groundUV.x*.14+u_clock*.16,groundUV.y*1.65+u_clock*.085));
         float remote=smoothstep(45.0,360.0,dist);
         col=mix(vec3(.16,.44,.48),u_horizon*.88,.15+remote*.40);
         vec2 screen=(gl_FragCoord.xy-u_viewport.xy)/u_viewport.zw;
-        float wave=noise(vec2(v_pos.x*.07,v_pos.z*.68+u_clock*.07))-.5;
+        float wave=noise(vec2(groundUV.x*.07,groundUV.y*.68+u_clock*.07))-.5;
         vec3 reflection=texture2D(u_lake,clamp(screen+vec2(wave*.009,(ribbon-.5)*.019),.002,.998)).rgb;
         col=mix(col*(.29+.71*day),reflection,.48+.22*remote);
         col+=vec3(.11,.14,.13)*smoothstep(.72,.92,ribbon)*(.30+.70*day);
         gl_FragColor=vec4(col+grain,1);return;
+    } else if(mat>4.5 && mat<5.5) {
+        vec2 uv=fract(v_uvm.xy);
+        float edge=max(abs(uv.x-.5),abs(uv.y-.5));
+        vec2 canopy=groundUV*.90+vec2(.37*v_pos.y,v_pos.y*1.32);
+        float clump=noise(canopy*8.0);
+        float needles=noise(canopy*vec2(17.0,34.0));
+        if(edge>.37 && clump+needles*.34<.39) discard;
+        col*=.77+.32*clump+.22*needles;
     } else if(mat>2.5 && mat<3.5) {
-        float rings=noise(vec2((v_pos.x+v_pos.z)*3.1,v_pos.y*34.0));
+        float rings=noise(vec2((groundUV.x+groundUV.y)*3.1,v_pos.y*34.0));
         col*=.92+.15*rings;
     } else {
-        float detail=noise(v_pos.xz*.87+v_pos.y*.2);
+        float detail=noise(groundUV*.87+v_pos.y*.2);
         col*=.963+.08*detail;
         if(mat>3.5 && mat<4.5) {
             vec3 normal=vec3(v_uvm.x,sqrt(max(.001,1.0-dot(v_uvm.xy,v_uvm.xy))),v_uvm.y);
@@ -88,15 +100,18 @@ void main() {
             float sunlight=(.87+.24*direct);
             col*=mix(1.0,sunlight,weather==0.0?day:.25*day);
             float crag=smoothstep(49.0,155.0,v_pos.y);
-            float seams=noise(vec2(v_pos.x*.065+v_pos.z*.036+v_pos.y*.023,v_pos.y*.027))+detail*.18;
+            float seams=noise(vec2(groundUV.x*.065+groundUV.y*.036+v_pos.y*.023,v_pos.y*.027))+detail*.18;
             col*=1.0-crag*smoothstep(.48,.83,seams)*.22;
             col+=vec3(.16,.07,.028)*direct*warmth*crag*day;
-            float distanceToTrail=6.0*texture2D(u_trail,v_pos.xz/512.0+.5).r;
-            float edge=distanceToTrail+(noise(v_pos.xz*1.35)-.5)*.56;
+            vec2 uvTrail=(v_pos.xz-u_trail_center.xz)/512.0+.5;
+            float distanceToTrail=6.0;
+            if(all(greaterThan(uvTrail,vec2(.002))) && all(lessThan(uvTrail,vec2(.998))))
+                distanceToTrail=6.0*texture2D(u_trail,uvTrail).r;
+            float edge=distanceToTrail+(noise(groundUV*1.35)-.5)*.56;
             float tread=1.0-smoothstep(1.15,2.12,edge);
             vec3 grit=mix(vec3(.49,.37,.25),vec3(.76,.64,.45),detail);
             grit=mix(grit,vec3(.64,.70,.70),step(2.5,u_season)*.86);
-            float gravel=noise(v_pos.xz*7.0);
+            float gravel=noise(groundUV*7.0);
             grit*=.90+.13*gravel+.09*smoothstep(.71,.88,gravel);
             col=mix(col,grit*sunlight,tread*.97);
         }

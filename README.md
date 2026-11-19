@@ -1,20 +1,22 @@
 # Mountain
 
-A quiet first-person hiking game set on Earth. Walk down from Larkspur Ridge, wait for the light on the lake, and take a photograph. Call a wood cabin onto the trail when you want to come inside.
+A quiet first-person hiking game set on Earth. Follow the trail from Larkspur Ridge to the lake, then keep walking into new mountain ranges. Wait for the light to reach a summit or a deer to lift its head, and take a photograph. Call a wood cabin onto the trail when you want to come inside.
 
 [Play the browser build](https://stbange.github.io/mountain/) · [Download desktop builds from the latest successful playtest run](https://github.com/stbange/mountain/actions/workflows/playtest.yml)
 
-![An in-game summer photograph of the lake below Larkspur Ridge](docs/larkspur-ridge.png)
+![An in-game photograph five kilometres along the Larkspur Ridge trail, where the forest opens onto sunlit peaks](docs/larkspur-ridge.png)
 
 ## On the trail
 
-Larkspur Ridge opens at a meadow trailhead. Follow the earth path and the timber posts with a cream and rust blaze. The first cairn marks **Lakeside View** and the second marks **Ridge Lookout**. **Trail map** shows the full walk, its length, both stops, and your position and heading. Enter a seed to revisit a mountain or choose **Generate a new mountain**.
+Larkspur Ridge opens at a meadow trailhead. Follow the earth path and the timber posts with a cream and rust blaze. The first cairn marks **Lakeside View** and the second marks **Ridge Lookout**. From Ridge Lookout the marked trail continues indefinitely. Follow the blazes between cairns or leave the path to explore in any direction. **Trail map** shows the two opening stops near the trailhead. Farther out, it shows local contours, your position and heading, distance walked, and the next stretch of trail. The same seed reproduces the terrain and trail on your return. Enter a seed to revisit a mountain or choose **Generate a new mountain**.
 
-Choose **Taggart Lake · Wyoming** in the map to walk beneath the Teton Range. The terrain comes from USGS 3DEP public-domain survey elevations. In this play-scale landscape each game metre represents five metres of terrain horizontally and vertically. The map and altimeter report geographic metres. The game generates its own route, plants and wildlife. [USGS source and attribution](assets/CREDITS.txt)
+Choose **Taggart Lake · Wyoming** in the map to walk beneath the Teton Range. The terrain comes from USGS 3DEP public-domain survey elevations. In this play-scale landscape each game metre represents five metres of terrain horizontally and vertically. The map and altimeter report geographic metres. Beyond the survey boundary, the measured landscape blends into imagined alpine backcountry. The game generates the route, plants and wildlife throughout. [USGS source and attribution](assets/CREDITS.txt)
 
 ![The Teton Range and the shore of Taggart Lake, photographed from the trail’s first cairn](docs/taggart-lake.png)
 
 Open **Season & weather** or click the season beside your elevation. Pick spring, summer, autumn or winter and choose the sky or time of day. A manual selection holds that condition. **Cycle through seasons** and **Let the weather change** run independently. Changing trails retains your chosen conditions. Spring glacier lilies give way to summer paintbrush and lupines, then autumn seed heads. In suitable daylight, butterflies and bumblebees visit the flowers. Winter precipitation falls as snow.
+
+Firs, spruce, larches and aspens grow from seeded voxel trunks and branches. Larch and aspen turn gold in autumn and lose their foliage in winter. Watch for mule deer at meadow edges, red foxes and snowshoe hares under cover, yellow-bellied marmots on rocky slopes, and golden eagles circling above. Hares turn white in winter and marmots hibernate. On the web, **Field guide** lists the species near your current position.
 
 **Summon cabin** places a furnished lodge ahead. Its footings follow the slope. In a grove, a mature tree at the edge of the floor can carry the platform. Open the front door to see the Hearth Room, then walk through. The door at the far end leads to another room. Rooms are regenerated from their index as you move. Their windows look back onto the current mountain. Walk back the way you came, or use **R** to return to the entrance. Step outside to dismiss the house.
 
@@ -60,13 +62,15 @@ Open http://localhost:8000/. Serve the entire directory. The loader reads the ma
 
 | Location | Responsibility |
 | --- | --- |
-| src/world.c and src/game.c | Seeded relief, vegetation placement, clock, hiking, thresholds and cabin state |
+| src/world.c, src/backcountry.c and src/game.c | Seeded ridges, continuous trail sections, local coordinates, hiking and cabin state |
 | src/route.c and src/survey.c | Grade-aware trail search, viewpoint selection, trail texture and survey interpolation |
 | assets/terrain/taggart.mht | Resampled public-domain terrain and lake footprint |
-| src/mesh.c, src/scene.c and src/render.c | Terrain meshes, sprite stands, voxel details, reflective water, window views and OpenGL passes |
-| src/script.c | Loads the Lua content and exposes the room geometry builder |
+| src/forest.c and src/fauna.c | Voxel tree growth, seasonal crowns, wildlife habitats and movement |
+| src/mesh.c, src/scene.c and src/render.c | Terrain meshes, meadow sprites, reflective water, window views and OpenGL passes |
+| src/script.c | Loads Lua content and exposes room and animal geometry builders |
 | src/app.c and web/ | SDL input, sound and photos, browser controls, journal and WebXR |
-| assets/scripts/world.lua | Starting trail, relief, water, pace, clock rate, names, seasons and palettes |
+| assets/scripts/world.lua | Starting trail, relief, water, pace, clock, names, tree branching shapes and seasonal palettes |
+| assets/scripts/wildlife.lua | Animal anatomy, coats, gait, posture and wing animation |
 | assets/scripts/cabin.lua | Floor plans, window openings, furniture, fixtures, materials and room titles |
 | assets/art, assets/shaders and assets/sound | Original bitmap art, GLSL and loopable PCM ambience |
 
@@ -90,7 +94,7 @@ python3 -m playwright install chromium
 python3 tests/browser.py build-web/play
 ~~~
 
-Use a fresh coverage build to measure the unit run independently. For headless Linux set SDL_VIDEO_DRIVER=offscreen, EGL_PLATFORM=surfaceless, SDL_AUDIO_DRIVER=dummy and LIBGL_ALWAYS_SOFTWARE=1. An existing Chromium executable can be selected with CHROMIUM. The live playtest renders a closed and opened cabin, hikes through successive rooms, returns outside and writes a photograph. Browser tests also download a photo, reload the journal and exercise phone controls.
+Use a fresh coverage build to measure the unit run independently. For headless Linux set SDL_VIDEO_DRIVER=offscreen, EGL_PLATFORM=surfaceless, SDL_AUDIO_DRIVER=dummy and LIBGL_ALWAYS_SOFTWARE=1. An existing Chromium executable can be selected with CHROMIUM. The live playtest walks more than five game kilometres on each of two seeds, returns to the same lookout, visits a remote cabin and writes a photograph. Unit tests also query trail sections millions of intervals apart, regenerate trees and habitat cells, compare level-of-detail meshes, and check seasonal wildlife. Browser tests open the map beyond the old boundary, download a photo, reload the journal and exercise phone controls.
 
 ## Branches and licensing
 

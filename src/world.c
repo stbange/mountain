@@ -14,12 +14,18 @@ uint32_t hash32(uint32_t x) {
     x *= 0x846ca68bu;
     return x ^ (x >> 16);
 }
-float random2(int x, int z, uint32_t seed) {
-    return (hash32((uint32_t)x * 0x9e3779b9u ^ (uint32_t)z * 0x85ebca6bu ^ seed) >> 8) *
-           (1.0f / 16777216.0f);
+uint32_t cell_hash(int64_t x, int64_t z, uint32_t seed) {
+    uint64_t a = (uint64_t)x, b = (uint64_t)z;
+    uint32_t hx = (uint32_t)(a >> 32) ^ (x < 0 ? UINT32_MAX : 0);
+    uint32_t hz = (uint32_t)(b >> 32) ^ (z < 0 ? UINT32_MAX : 0);
+    return hash32((uint32_t)a * 0x9e3779b9u ^ (uint32_t)b * 0x85ebca6bu ^
+                  hash32(hx * 0x9e3779b9u ^ hz * 0x85ebca6bu) ^ seed);
 }
-float noise2(float x, float z, uint32_t seed) {
-    int ix = (int)floorf(x), iz = (int)floorf(z);
+float random2(int64_t x, int64_t z, uint32_t seed) {
+    return (cell_hash(x, z, seed) >> 8) * (1.0f / 16777216.0f);
+}
+float noise2(double x, double z, uint32_t seed) {
+    int64_t ix = (int64_t)floor(x), iz = (int64_t)floor(z);
     float fx = x - ix, fz = z - iz;
     fx = fx * fx * (3 - 2 * fx);
     fz = fz * fz * (3 - 2 * fz);
@@ -35,6 +41,8 @@ Color blend(Color a, Color b, float t) {
 Color shade(Color c, float l) { return (Color){c.r * l, c.g * l, c.b * l}; }
 
 void world_init(World *w, uint32_t seed, const Rules *r) {
+    w->ox = w->oz = 0;
+    w->trail = (LongTrail){0};
     w->seed = seed;
     w->relief = r->relief;
     w->survey = r->survey.data && seed == r->survey.seed ? &r->survey : NULL;
@@ -75,9 +83,19 @@ void world_init(World *w, uint32_t seed, const Rules *r) {
         w->peaks[i] = p;
     }
     route_generate(w);
+    Place end = w->route.point[w->route.count - 1];
+    if (fabsf(end.x) >= fabsf(end.z))
+        w->trail.dx = end.x < 0 ? -1 : 1;
+    else
+        w->trail.dz = end.z < 0 ? -1 : 1;
+    w->trail.start_y = raw_height(w, end.x, end.z);
+    w->trail.regional_origin = noise2(0, 4, seed) * 880 + noise2(0, 5, seed) * 2600;
+    w->trail.first = -TRAIL_WINDOW - 1;
+    w->trail.first_shelf = -2 * TRAIL_SHELVES;
+    trail_window(w, 0, 0);
 }
 
-float height_at(const World *w, float x, float z) {
+float starter_height(const World *w, float x, float z) {
     if (w->survey)
         return survey_height(w->survey, x, z);
     uint32_t s = w->seed;
@@ -121,38 +139,43 @@ float alpenglow(float hour) { return 1 - smooth(.03f, .71f, fabsf(sinf((hour - 6
 
 bool world_tree(const World *w, int i, int j, Tree *tree) {
     uint32_t s = w->seed;
-    float x = (i + random2(i, j, s + 1)) * 7, z = (j + random2(i, j, s + 2)) * 7;
-    float h = height_at(w, x, z), patch = noise2(x * .032f, z * .032f, s + 61);
+    int64_t ix = w->ox / 7 + i, iz = w->oz / 7 + j;
+    float x = (i + random2(ix, iz, s + 1)) * 7, z = (j + random2(ix, iz, s + 2)) * 7;
+    float h = height_at(w, x, z),
+          patch = noise2((w->ox + (double)x) * .032, (w->oz + (double)z) * .032, s + 61);
     if (h < water_at(w, x, z) + 1.7f || h > 112 + 17 * patch)
         return false;
-    float gap = smooth(3.15f, 13.f, route_distance(&w->route, x, z));
-    float meadow = smooth(8, 44, hypotf(x, z));
-    if (random2(i, j, s + 83) > (.20f + patch * .86f) * gap * (.32f + meadow * .68f))
+    float gap = smooth(3.15f, 13.f, trail_distance(w, x, z));
+    float meadow = smooth(8, 44, (float)hypot(w->ox + (double)x, w->oz + (double)z));
+    if (random2(ix, iz, s + 83) > (.20f + patch * .86f) * gap * (.32f + meadow * .68f))
         return false;
     const Route *route = &w->route;
     for (int stop = 0; stop < 2; stop++) {
         Place p = route->point[stop ? route->count - 1 : route->overlook],
               sight = route->sight[stop];
-        float dx = x - p.x, dz = z - p.z, along = dx * sight.x + dz * sight.z;
+        float dx = (float)(w->ox + (double)x - p.x), dz = (float)(w->oz + (double)z - p.z),
+              along = dx * sight.x + dz * sight.z;
         if (dx * dx + dz * dz < 13 * 13 ||
             (along > 0 && along < 62 && fabsf(dx * sight.z - dz * sight.x) < 4 + .28f * along))
             return false;
     }
     if (w->survey) {
         /* The eastern shore opens onto a glacial lake and its mountain skyline. */
-        float right = x * cosf(w->survey->bearing) + z * sinf(w->survey->bearing);
-        float ahead = x * sinf(w->survey->bearing) - z * cosf(w->survey->bearing);
-        if (ahead > 0 && ahead < 62 && fabsf(right) < 3.5f + .15f * ahead)
+        double ax = w->ox + (double)x, az = w->oz + (double)z;
+        double right = ax * cosf(w->survey->bearing) + az * sinf(w->survey->bearing);
+        double ahead = ax * sinf(w->survey->bearing) - az * cosf(w->survey->bearing);
+        if (ahead > 0 && ahead < 62 && fabs(right) < 3.5f + .15f * ahead)
             return false;
     }
-    float species = random2(i, j, s + 145);
+    float species = random2(ix, iz, s + 145);
     *tree = (Tree){x,
                    h,
                    z,
-                   (6 + 11 * random2(i, j, s + 5)) * (w->survey ? .68f : 1.f) *
+                   (6 + 11 * random2(ix, iz, s + 5)) * (w->survey ? .68f : 1.f) *
                        (1 - .32f * smooth(74, 124, h)),
-                   random2(i, j, s + 7) * PI,
+                   random2(ix, iz, s + 7) * PI,
                    .78f + .24f * patch,
-                   species < .14f ? 3 : (species < .23f ? 2 : (i % 3 == 0 ? 1 : 0))};
+                   species < .14f ? 3 : (species < .23f ? 2 : (ix % 3 == 0 ? 1 : 0)),
+                   cell_hash(ix, iz, s + 818)};
     return true;
 }

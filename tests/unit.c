@@ -214,30 +214,249 @@ static uint32_t geometry_hash(const Mesh *m) {
         hash = (hash ^ bytes[i]) * 16777619u;
     return hash;
 }
+/* Position a test observer exactly the way a long hike partitions global metres
+   into a signed origin and small local coordinates. */
+static void observe(Game *g, double x, double z) {
+    g->world.ox = (int64_t)floor(x / WORLD_FRAME + .5) * WORLD_FRAME;
+    g->world.oz = (int64_t)floor(z / WORLD_FRAME + .5) * WORLD_FRAME;
+    g->x = (float)(x - g->world.ox);
+    g->z = (float)(z - g->world.oz);
+    trail_window(&g->world, g->x, g->z);
+}
+static void endless_terrain(const Rules *rules) {
+    const uint32_t seeds[] = {4812, rules->survey.seed, 0, UINT32_MAX};
+    unsigned char *map = malloc(TRAIL_TEXTURE_SIZE * TRAIL_TEXTURE_SIZE);
+    CHECK(map);
+    CHECK(cell_hash(12, -5, 19) != cell_hash((INT64_C(1) << 32) + 12, -5, 19));
+    for (size_t n = 0; n < sizeof seeds / sizeof *seeds; n++) {
+        Game g;
+        game_init(&g, rules, seeds[n]);
+        World fresh = g.world;
+        Place end = g.world.route.point[g.world.route.count - 1];
+        Place join = trail_knot(&g.world, 0);
+        CLOSE(end.x, join.x);
+        CLOSE(end.z, join.z);
+        float low = 1e6f, high = -1e6f;
+        for (int k = -5; k <= 5; k++) {
+            double x = 320000004.0 + k * 215., z = -718000061.0 - k * 97.;
+            float h = raw_height(&g.world, x, z);
+            low = fminf(low, h);
+            high = fmaxf(high, h);
+            observe(&g, x, z);
+            CLOSE(h, height_at(&g.world, g.x, g.z));
+            CLOSE(h, raw_height(&fresh, x, z));
+        }
+        CHECK(high - low > 20);
+        const int64_t stations[] = {0,   1,   9,     64,       127, 128, 190,
+                                    256, 327, 10003, 10000007, 128, 1,   0};
+        for (size_t j = 0; j < sizeof stations / sizeof *stations; j++) {
+            int64_t i = stations[j];
+            double ax, az, bx, bz;
+            trail_coordinates(&fresh, i, &ax, &az);
+            trail_coordinates(&fresh, i + 1, &bx, &bz);
+            observe(&g, (ax + bx) * .5, (az + bz) * .5);
+            double x, z;
+            trail_coordinates(&g.world, i, &x, &z);
+            CLOSE(ax, x);
+            CLOSE(az, z);
+            Place a = trail_knot(&g.world, i), b = trail_knot(&g.world, i + 1);
+            float ha = height_at(&g.world, a.x, a.z), hb = height_at(&g.world, b.x, b.z);
+            CHECK(ha > water_at(&g.world, a.x, a.z));
+            CHECK(hb > water_at(&g.world, b.x, b.z));
+            CHECK(fabsf(hb - ha) < .32 * hypot(bx - ax, bz - az) + .01);
+            float middle = height_at(&g.world, g.x, g.z);
+            CHECK(middle > water_at(&g.world, g.x, g.z));
+            CLOSE(middle, height_global(&fresh, (ax + bx) * .5, (az + bz) * .5));
+            CHECK(trail_distance(&g.world, g.x, g.z) < .001f);
+            if (i == 0 || j % 3 == 0) {
+                route_texture(&g.world, g.x, g.z, map);
+                int center = (TRAIL_TEXTURE_SIZE / 2) * (TRAIL_TEXTURE_SIZE + 1);
+                CHECK(map[center] < 45);
+                int across = g.world.trail.dx ? 24 * TRAIL_TEXTURE_SIZE : 24;
+                CHECK(map[center + across] == 255 || map[center - across] == 255);
+            }
+        }
+        observe(&g, 0, 0);
+        double loop_x, loop_z;
+        trail_coordinates(&fresh, 783, &loop_x, &loop_z);
+        float seam =
+            (float)((fresh.survey ? fresh.survey->cell * (fresh.survey->side / 2) : 960) - .02f);
+        CHECK(fabsf(raw_height(&fresh, seam, -105) - raw_height(&fresh, seam + .04f, -105)) < .4f);
+        CHECK(fabsf(raw_height(&fresh, -seam, 105) - raw_height(&fresh, -seam - .04f, 105)) < .4f);
+        observe(&g, loop_x, loop_z);
+        float before = ground(&g, g.x, g.z);
+        /* An arbitrary query outside the active trail window gives the same elevation. */
+        CHECK(fabsf(before - height_at(&fresh, (float)loop_x, (float)loop_z)) < .002f);
+        observe(&g, -5000000, 4500000);
+        observe(&g, loop_x, loop_z);
+        CLOSE(before, ground(&g, g.x, g.z));
+        CLOSE(trail_station(&g.world, g.x, g.z) / TRAIL_STEP, 783);
+    }
+    free(map);
+    Game g;
+    game_init(&g, rules, 4812);
+    CHECK(game_action(&g, ACT_CABIN));
+    double site_x = g.cabin.site_x, site_z = g.cabin.site_z;
+    g.x = WORLD_FRAME + .375f;
+    g.z = -2 * WORLD_FRAME - .25f;
+    world_track(&g);
+    CLOSE(g.x, .375);
+    CLOSE(g.z, -.25);
+    CLOSE(g.cabin.x + g.world.ox, site_x);
+    CLOSE(g.cabin.z + g.world.oz, site_z);
+    CHECK(!cabin_in_view(&g));
+    g.x -= WORLD_FRAME;
+    g.z += 2 * WORLD_FRAME;
+    world_track(&g);
+    CHECK(g.world.ox == 0 && g.world.oz == 0 && cabin_in_view(&g));
+    CLOSE(g.cabin.x, site_x);
+    CLOSE(g.cabin.z, site_z);
+}
+static void living_world(Script *script) {
+    Game g;
+    game_init(&g, &script->rules, 4812);
+    Tree tree = {0};
+    bool found = false;
+    for (int j = 2; j < 30 && !found; j++)
+        for (int i = 2; i < 30 && !found; i++) {
+            if (!world_tree(&g.world, i, j, &tree))
+                continue;
+            found = true;
+            Tree rebuilt;
+            g.world.ox = WORLD_FRAME;
+            g.world.oz = -WORLD_FRAME;
+            CHECK(world_tree(&g.world, i - WORLD_FRAME / 7, j + WORLD_FRAME / 7, &rebuilt));
+            CLOSE(tree.x, rebuilt.x + WORLD_FRAME);
+            CLOSE(tree.z, rebuilt.z - WORLD_FRAME);
+            CHECK(fabsf(tree.y - rebuilt.y) < .005f && tree.form == rebuilt.form);
+            CLOSE(tree.height, rebuilt.height);
+            CLOSE(tree.angle, rebuilt.angle);
+        }
+    CHECK(found);
+    observe(&g, 0, 0);
+    Forest *f = &script->forest;
+    forest_prepare(f, &g);
+    CHECK(f->atlas && f->seed == g.world.seed && f->season == g.season);
+    for (int i = 0; i < TREE_FORMS; i++) {
+        CHECK(f->close[i].count > f->middle[i].count && f->middle[i].count > 36);
+        if (i % 8)
+            CHECK(geometry_hash(&f->close[i]) != geometry_hash(&f->close[i - 1]));
+    }
+    size_t atlas_size = FOREST_ATLAS * FOREST_ATLAS * 4;
+    unsigned char *summer = malloc(atlas_size);
+    CHECK(summer);
+    memcpy(summer, f->atlas, atlas_size);
+    Mesh model = {0};
+    voxel_tree(&model, f, tree, 12);
+    size_t near_count = model.count;
+    mesh_clear(&model);
+    voxel_tree(&model, f, tree, 44);
+    CHECK(model.count < near_count && model.count > 12);
+    mesh_clear(&model);
+    voxel_tree(&model, f, tree, 95);
+    CHECK(model.count == 12 && model.v[0].material > 1.4f);
+    mesh_free(&model);
+    g.season = 3;
+    forest_prepare(f, &g);
+    CHECK(memcmp(summer, f->atlas, atlas_size));
+    g.season = 1;
+    g.world.seed++;
+    forest_prepare(f, &g);
+    CHECK(memcmp(summer, f->atlas, atlas_size));
+    g.world.seed--;
+    forest_prepare(f, &g);
+    CHECK(!memcmp(summer, f->atlas, atlas_size));
+    free(summer);
+    int all = 0, far = 0;
+    for (int j = -3; j <= 3; j++)
+        for (int i = -3; i <= 3; i++) {
+            observe(&g, 1000000 + i * 173., -2500000 + j * 139.);
+            game_conditions(&g, 1, 0, 9);
+            Animal a[LOCAL_ANIMALS], again[LOCAL_ANIMALS];
+            int n = fauna_near(&g, a, LOCAL_ANIMALS);
+            CHECK(n == fauna_near(&g, again, LOCAL_ANIMALS) && n <= LOCAL_ANIMALS);
+            for (int k = 0; k < n; k++) {
+                all |= 1 << a[k].kind;
+                far++;
+                CHECK(a[k].id == again[k].id && a[k].kind == again[k].kind);
+                CLOSE(a[k].pos.x, again[k].pos.x);
+                CLOSE(a[k].pos.z, again[k].pos.z);
+                CHECK(a[k].pos.y > water_at(&g.world, a[k].pos.x, a[k].pos.z));
+            }
+            game_conditions(&g, 3, 2, 0);
+            n = fauna_near(&g, a, LOCAL_ANIMALS);
+            for (int k = 0; k < n; k++)
+                CHECK(a[k].kind != MARMOT && a[k].kind != EAGLE);
+        }
+    CHECK(all == (1 << FAUNA_TYPES) - 1 && far > 100);
+    observe(&g, 0, 0);
+    game_conditions(&g, 1, 0, 9);
+    Animal a[LOCAL_ANIMALS], b[LOCAL_ANIMALS];
+    int n = fauna_near(&g, a, LOCAL_ANIMALS);
+    CHECK(n > 0 && fauna_near(&g, b, 1) == 1 && fauna_near(&g, b, 0) == 0);
+    g.world.ox = WORLD_FRAME;
+    g.x -= WORLD_FRAME;
+    int m = fauna_near(&g, b, LOCAL_ANIMALS);
+    CHECK(m == n);
+    for (int k = 0; k < n; k++) {
+        CHECK(a[k].id == b[k].id);
+        CLOSE(a[k].pos.x, b[k].pos.x + WORLD_FRAME);
+        CLOSE(a[k].pos.z, b[k].pos.z);
+    }
+    observe(&g, 0, 0);
+    int first = 0;
+    while (first < n && a[first].kind == EAGLE)
+        first++;
+    CHECK(first < n);
+    g.cabin = (Cabin){.present = true, .x = a[first].pos.x, .z = a[first].pos.z};
+    m = fauna_near(&g, b, LOCAL_ANIMALS);
+    for (int k = 0; k < m; k++)
+        CHECK(b[k].id != a[first].id);
+    Mesh animals = {0};
+    for (int k = 0; k < FAUNA_TYPES; k++) {
+        Animal one = {.kind = (AnimalKind)k, .id = 17, .size = 1, .phase = 1.4f, .activity = .8f};
+        CHECK(script_animal(script, &animals, &one, g.season));
+        CHECK(animals.count > 500);
+        mesh_clear(&animals);
+    }
+    CHECK(luaL_dostring(script->L,
+                        "saved_animal=build_animal; function build_animal(k,s,p,a,id,part) "
+                        "part(0,0,0,0,0,0,1,1,0); error('bad animal') end") == LUA_OK);
+    CHECK(!script_animal(script, &animals, a, g.season) && strstr(script->error, "bad animal"));
+    CHECK(luaL_dostring(script->L, "build_animal=saved_animal") == LUA_OK);
+    char fauna_file[sizeof script->rules.fauna_script];
+    strcpy(fauna_file, script->rules.fauna_script);
+    script->rules.fauna_script[0] = 0;
+    wildlife(&animals, script, &g);
+    CHECK(animals.count > 0);
+    strcpy(script->rules.fauna_script, fauna_file);
+    mesh_free(&animals);
+}
 static void composition(Script *s) {
     Game g;
     Mesh m = {0};
     game_init(&g, &s->rules, 41);
-    landscape(&m, &g, 0, 0);
+    landscape(&m, &s->forest, &g, 0, 0);
     size_t size = m.count;
     uint32_t original = geometry_hash(&m);
     CHECK(size > 65000 && !m.failed);
-    landscape(&m, &g, 0, 0);
+    landscape(&m, &s->forest, &g, 0, 0);
     CHECK(size == m.count && original == geometry_hash(&m));
     game_conditions(&g, 2, 1, 7);
-    landscape(&m, &g, 0, 0);
+    landscape(&m, &s->forest, &g, 0, 0);
     CHECK(geometry_hash(&m) != original);
-    wildlife(&m, &g);
+    wildlife(&m, s, &g);
     CHECK(m.count >= 48);
+    game_conditions(&g, 3, 0, 0);
+    wildlife(&m, s, &g);
     size = m.count;
-    g.season = 3;
     g.weather = 2;
-    wildlife(&m, &g);
-    CHECK(m.count > size);
+    wildlife(&m, s, &g);
+    CHECK(m.count == size + 110 * 3);
     cabin_mesh(&m, s, &g);
     CHECK(!m.count);
     game_action(&g, ACT_CABIN);
-    landscape(&m, &g, 0, 0);
+    landscape(&m, &s->forest, &g, 0, 0);
     cabin_mesh(&m, s, &g);
     size = m.count;
     CHECK(size > 1000);
@@ -264,20 +483,31 @@ static void composition(Script *s) {
                 game_action(&grove, ACT_CABIN);
         }
     CHECK(found);
-    wildlife(&m, &g);
+    float support_x = grove.cabin.anchor.x, support_z = grove.cabin.anchor.z;
+    grove.x += WORLD_FRAME * 2;
+    grove.z -= WORLD_FRAME;
+    world_track(&grove);
+    cabin_mesh(&m, s, &grove);
+    CHECK(!m.count);
+    grove.x -= WORLD_FRAME * 2;
+    grove.z += WORLD_FRAME;
+    world_track(&grove);
+    CLOSE(support_x, grove.cabin.anchor.x);
+    CLOSE(support_z, grove.cabin.anchor.z);
+    wildlife(&m, s, &g);
     CHECK(m.count > 0);
     game_init(&grove, &s->rules, s->rules.survey.seed);
-    landscape(&m, &grove, 0, 0);
+    landscape(&m, &s->forest, &grove, 0, 0);
     CHECK(m.count > 65000 && !m.failed);
     game_conditions(&grove, 1, 0, 12);
-    wildlife(&m, &grove);
+    wildlife(&m, s, &grove);
     uint32_t flight = geometry_hash(&m);
     size_t in_flight = m.count;
     game_tick(&grove, .18f, 0, 0);
-    wildlife(&m, &grove);
+    wildlife(&m, s, &grove);
     CHECK(flight != geometry_hash(&m));
     grove.hour = 0;
-    wildlife(&m, &grove);
+    wildlife(&m, s, &grove);
     CHECK(m.count < in_flight);
     CHECK(!strcmp(room_name(s, 0), "Hearth Room"));
     CHECK(strcmp(room_name(s, 2147483647u), "Hearth Room"));
@@ -320,6 +550,16 @@ static void platform(const char *assets) {
     CHECK(!strcmp(mountain_option(0, 3), "Winter"));
     CHECK(!strcmp(mountain_option(1, 2), "Rain"));
     CHECK(mountain_height(0, 0) > mountain_water());
+    CHECK(mountain_sightings() & (1 << DEER));
+    CHECK(!strcmp(mountain_species(MARMOT), "Yellow-bellied marmot") && !mountain_species(99)[0]);
+    int last = (int)mountain_value(20) - 1;
+    CLOSE(mountain_extension(0, 0), mountain_path(last, 0));
+    CLOSE(mountain_extension(-2, 1), mountain_path(last, 1));
+    CHECK(isnan(mountain_extension(INFINITY, 0)) && isnan(mountain_extension(1e30, 0)));
+    double remote = 100000001;
+    double span = hypot(mountain_extension(remote + 1, 0) - mountain_extension(remote, 0),
+                        mountain_extension(remote + 1, 1) - mountain_extension(remote, 1));
+    CHECK(span >= TRAIL_STEP && span < 2 * TRAIL_STEP);
     mountain_resize(260, 160);
     mountain_frame();
     uint32_t checksum = display_sample(260, 160);
@@ -333,7 +573,7 @@ static void platform(const char *assets) {
     mountain_look(.2f, -.2f);
     mountain_input(.7f, .1f);
     mountain_walk(.1f, 1, 0);
-    for (int k = 0; k <= 25; k++)
+    for (int k = 0; k <= 27; k++)
         CHECK(isfinite(mountain_value(k)));
     CHECK(mountain_value(7) == 271 && mountain_value(15) > 0);
     mountain_pause(1);
@@ -387,6 +627,8 @@ int main(int argc, char **argv) {
     maths(&s.rules);
     hiking(&s.rules);
     marked_hikes(&s.rules, argv[1]);
+    endless_terrain(&s.rules);
+    living_world(&s);
     composition(&s);
     script_close(&s);
     platform(argv[1]);

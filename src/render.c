@@ -22,19 +22,18 @@ EM_JS(void, restore_browser_target, (void), {
 #define FUNCTIONS(X)                                                                               \
     X(GLuint, CreateShader, (GLenum))                                                              \
     X(void, ShaderSource, (GLuint, GLsizei, const char *const *, const GLint *))                   \
-    X(void, CompileShader, (GLuint)) X(void, GetShaderiv, (GLuint, GLenum, GLint *)) X(            \
-        void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei *, char *))                              \
-        X(GLuint, CreateProgram, (void)) X(void, AttachShader, (GLuint, GLuint)) X(                \
-            void, BindAttribLocation, (GLuint, GLuint, const char *))                              \
-            X(void, LinkProgram, (GLuint)) X(void, GetProgramiv, (GLuint, GLenum, GLint *)) X(     \
-                void, GetProgramInfoLog, (GLuint, GLsizei, GLsizei *, char *)) X(void, UseProgram, \
-                                                                                 (GLuint))         \
-                X(void, DeleteShader, (GLuint)) X(void, DeleteProgram, (GLuint)) X(                \
-                    GLint, GetUniformLocation,                                                     \
-                    (                                                                              \
-                        GLuint,                                                                    \
-                        const char *)) X(void, UniformMatrix4fv,                                   \
-                                         (GLint, GLsizei, GLboolean, const GLfloat *))             \
+    X(void, CompileShader, (GLuint))                                                               \
+    X(void, GetShaderiv, (GLuint, GLenum, GLint *))                                                \
+    X(void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei *, char *)) X(                             \
+        GLuint, CreateProgram, (void)) X(void, AttachShader,                                       \
+                                         (GLuint, GLuint)) X(void, BindAttribLocation,             \
+                                                             (GLuint, GLuint, const char *))       \
+        X(void, LinkProgram, (GLuint)) X(void, GetProgramiv, (GLuint, GLenum, GLint *)) X(         \
+            void, GetProgramInfoLog, (GLuint, GLsizei, GLsizei *, char *))                         \
+            X(void, UseProgram, (GLuint)) X(void, DeleteShader, (GLuint)) X(                       \
+                void, DeleteProgram,                                                               \
+                (GLuint)) X(GLint, GetUniformLocation, (GLuint, const char *))                     \
+                X(void, UniformMatrix4fv, (GLint, GLsizei, GLboolean, const GLfloat *))            \
                     X(void, Uniform1i, (GLint, GLint)) X(void, Uniform1f, (GLint, GLfloat)) X(     \
                         void,                                                                      \
                         Uniform3f,                                                                 \
@@ -104,11 +103,14 @@ typedef struct {
     GLsizei count;
 } Buffer;
 struct Display {
-    GLuint program, atlas, font, trail, fb, frame, depth, lake_fb, lake_tex, lake_depth;
-    GLint reflect, water, viewport, season_tint;
+    GLuint program, atlas, font, trail, canopy, fb, frame, depth, lake_fb, lake_tex, lake_depth;
+    GLint reflect, water, viewport, season_tint, trail_center, pattern;
+    int trail_x, trail_z;
+    int64_t ox, oz;
     unsigned char tread[TRAIL_TEXTURE_SIZE * TRAIL_TEXTURE_SIZE];
     Mat lake_view;
-    float lake_time, lake_hour;
+    double lake_time;
+    float lake_hour;
     int lake_season, lake_weather;
     uint32_t lake_seed;
     GLint vp, inv, eye, layer, air, zenith, horizon, sun, clock;
@@ -117,7 +119,7 @@ struct Display {
     int cx, cz, season, fw, fh;
     uint32_t seed;
     Cabin cached;
-    bool valid;
+    bool valid, house_in_view;
 };
 static bool resolve(void) {
 #define LOAD(ret, name, args)                                                                      \
@@ -254,11 +256,15 @@ Display *display_open(const char *root) {
     LOC(clock, "clock");
     LOC(reflect, "reflection");
     LOC(water, "water");
+    LOC(trail_center, "trail_center");
+    LOC(pattern, "pattern");
     LOC(season_tint, "season");
     LOC(viewport, "viewport");
     qUniform1i(qGetUniformLocation(d->program, "u_atlas"), 0);
     qUniform1i(qGetUniformLocation(d->program, "u_lake"), 1);
     qUniform1i(qGetUniformLocation(d->program, "u_trail"), 2);
+    qUniform1i(qGetUniformLocation(d->program, "u_canopy"), 3);
+    qGenTextures(1, &d->canopy);
     qGenTextures(1, &d->trail);
     d->atlas = texture(root, "field.tga");
     d->font = texture(root, "letters.tga");
@@ -278,9 +284,9 @@ void display_close(Display *d) {
     if (!d)
         return;
     GLuint buffers[] = {d->land.id, d->house.id, d->life.id, d->screen.id, d->hud.id};
-    GLuint tex[] = {d->atlas, d->font, d->frame, d->lake_tex, d->trail};
+    GLuint tex[] = {d->atlas, d->font, d->frame, d->lake_tex, d->trail, d->canopy};
     qDeleteBuffers(5, buffers);
-    qDeleteTextures(5, tex);
+    qDeleteTextures(6, tex);
     qDeleteFramebuffers(1, &d->lake_fb);
     qDeleteRenderbuffers(1, &d->lake_depth);
     qDeleteFramebuffers(1, &d->fb);
@@ -291,8 +297,23 @@ void display_close(Display *d) {
 }
 static void scenery(Display *d, Script *s, const Game *g) {
     const Cabin *c = &g->cabin, *old = &d->cached;
-    if (!d->valid || d->seed != g->world.seed) {
-        route_texture(&g->world.route, d->tread);
+    if (!d->valid || d->seed != g->world.seed || d->season != g->season) {
+        forest_prepare(&s->forest, g);
+        qActiveTexture(GL_TEXTURE3);
+        qBindTexture(GL_TEXTURE_2D, d->canopy);
+        texture_settings();
+        qTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, FOREST_ATLAS, FOREST_ATLAS, 0, GL_RGBA,
+                    GL_UNSIGNED_BYTE, s->forest.atlas);
+        qActiveTexture(GL_TEXTURE0);
+    }
+    bool shifted = d->ox != g->world.ox || d->oz != g->world.oz;
+    int tx = (int)floorf((g->x + 32) / 64) * 64, tz = (int)floorf((g->z + 32) / 64) * 64;
+    if (!d->valid || d->seed != g->world.seed || shifted || d->trail_x != tx || d->trail_z != tz) {
+        d->trail_x = tx;
+        d->trail_z = tz;
+        qUniform3f(d->trail_center, (float)tx, 0, (float)tz);
+        qUniform3f(d->pattern, (float)(g->world.ox % 4096), 0, (float)(g->world.oz % 4096));
+        route_texture(&g->world, (float)tx, (float)tz, d->tread);
         qActiveTexture(GL_TEXTURE2);
         qBindTexture(GL_TEXTURE_2D, d->trail);
         texture_settings();
@@ -307,26 +328,30 @@ static void scenery(Display *d, Script *s, const Game *g) {
 #endif
         qActiveTexture(GL_TEXTURE0);
     }
-    bool site =
-        c->present != old->present || c->x != old->x || c->z != old->z || c->angle != old->angle;
+    bool site = shifted || d->season != g->season || c->present != old->present || c->x != old->x ||
+                c->z != old->z || c->angle != old->angle;
     int cx = (int)floorf((g->x + 14) / 28) * 28, cz = (int)floorf((g->z + 14) / 28) * 28;
     if (!d->valid || d->seed != g->world.seed || d->season != g->season || cx != d->cx ||
         cz != d->cz || site) {
-        landscape(&d->scratch, g, (float)cx, (float)cz);
+        landscape(&d->scratch, &s->forest, g, (float)cx, (float)cz);
         upload(&d->land, &d->scratch, GL_STATIC_DRAW);
         d->cx = cx;
         d->cz = cz;
         d->seed = g->world.seed;
         d->season = g->season;
     }
-    if (!d->valid || site || old->open != c->open || old->inside != c->inside ||
-        old->room != c->room) {
+    bool house_in_view = cabin_in_view(g);
+    if (!d->valid || site || d->house_in_view != house_in_view || old->open != c->open ||
+        old->inside != c->inside || old->room != c->room) {
         cabin_mesh(&d->scratch, s, g);
         upload(&d->house, &d->scratch, GL_STATIC_DRAW);
     }
+    d->house_in_view = house_in_view;
     d->cached = *c;
+    d->ox = g->world.ox;
+    d->oz = g->world.oz;
     d->valid = true;
-    wildlife(&d->scratch, g);
+    wildlife(&d->scratch, s, g);
     upload(&d->life, &d->scratch, GL_DYNAMIC_DRAW);
 }
 static Mat inverse(Mat a) {
@@ -409,7 +434,7 @@ static void lake_reflection(Display *d, const Game *g, Viewport vp, Mat projecti
                                  d->lake_depth);
     }
     Mat scene = multiply(projection, view);
-    if (fresh || fabsf(g->elapsed - d->lake_time) > .22f || fabsf(g->hour - d->lake_hour) > .02f ||
+    if (fresh || fabs(g->elapsed - d->lake_time) > .22f || fabsf(g->hour - d->lake_hour) > .02f ||
         d->lake_seed != g->world.seed || d->lake_season != g->season ||
         d->lake_weather != g->weather || memcmp(&scene, &d->lake_view, sizeof scene)) {
         qBindFramebuffer(GL_FRAMEBUFFER, d->lake_fb);

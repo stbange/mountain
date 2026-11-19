@@ -286,20 +286,61 @@ float route_distance(const Route *r, float x, float z) {
             best = fminf(best, segment_squared(r->point[i - 1], r->point[i], x, z));
     return sqrtf(best);
 }
-void route_texture(const Route *r, unsigned char *pixels) {
-    /* One texel per metre, intensity encodes distance out to six metres. */
+float trail_distance(const World *w, float x, float z) {
+    float best = route_distance(&w->route, (float)(w->ox + (double)x), (float)(w->oz + (double)z));
+    double s = trail_station(w, x, z);
+    if (s < -32)
+        return best;
+    Place end = w->route.point[w->route.count - 1];
+    double cross =
+        -(w->ox + (double)x - end.x) * w->trail.dz + (w->oz + (double)z - end.z) * w->trail.dx;
+    if (fabs(cross) > 4000)
+        return best;
+    int64_t k = (int64_t)floor(s / TRAIL_STEP);
+    int64_t from = k > 2 ? k - 2 : 0;
+    Place a = trail_knot(w, from);
+    for (int64_t i = from; i <= k + 1; i++) {
+        Place b = trail_knot(w, i + 1);
+        best = fminf(best, sqrtf(segment_squared(a, b, x, z)));
+        a = b;
+    }
+    return best;
+}
+static void paint(unsigned char *pixels, Place a, Place b, float cx, float cz) {
     int side = TRAIL_TEXTURE_SIZE;
-    memset(pixels, 255, (size_t)side * side);
-    for (int i = 1; i < r->count; i++) {
-        Place a = r->point[i - 1], b = r->point[i];
-        for (int z = (int)floorf(fminf(a.z, b.z)) - 6; z <= (int)ceilf(fmaxf(a.z, b.z)) + 6; z++)
-            for (int x = (int)floorf(fminf(a.x, b.x)) - 6; x <= (int)ceilf(fmaxf(a.x, b.x)) + 6;
-                 x++) {
-                unsigned char d = (unsigned char)fminf(
-                    255, sqrtf(segment_squared(a, b, x + .5f, z + .5f)) * 42.5f);
-                unsigned char *cell = &pixels[(z + side / 2) * side + x + side / 2];
-                if (d < *cell)
-                    *cell = d;
-            }
+    a.x -= cx;
+    a.z -= cz;
+    b.x -= cx;
+    b.z -= cz;
+    float lo_x = fmaxf(-side / 2, floorf(fminf(a.x, b.x)) - 6),
+          hi_x = fminf(side / 2 - 1, ceilf(fmaxf(a.x, b.x)) + 6);
+    float lo_z = fmaxf(-side / 2, floorf(fminf(a.z, b.z)) - 6),
+          hi_z = fminf(side / 2 - 1, ceilf(fmaxf(a.z, b.z)) + 6);
+    if (lo_x > hi_x || lo_z > hi_z)
+        return;
+    for (int z = (int)lo_z; z <= (int)hi_z; z++)
+        for (int x = (int)lo_x; x <= (int)hi_x; x++) {
+            unsigned char d =
+                (unsigned char)fminf(255, sqrtf(segment_squared(a, b, x + .5f, z + .5f)) * 42.5f);
+            unsigned char *cell = &pixels[(z + side / 2) * side + x + side / 2];
+            if (d < *cell)
+                *cell = d;
+        }
+}
+void route_texture(const World *w, float cx, float cz, unsigned char *pixels) {
+    memset(pixels, 255, TRAIL_TEXTURE_SIZE * TRAIL_TEXTURE_SIZE);
+    const Route *r = &w->route;
+    double ax = w->ox + (double)cx, az = w->oz + (double)cz;
+    if (fabs(ax) < 512 && fabs(az) < 512)
+        for (int i = 1; i < r->count; i++)
+            paint(pixels, r->point[i - 1], r->point[i], (float)ax, (float)az);
+    int64_t k = (int64_t)floor(trail_station(w, cx, cz) / TRAIL_STEP);
+    int radius = TRAIL_TEXTURE_SIZE / (2 * TRAIL_STEP) + 2;
+    int64_t first = k > radius ? k - radius : 0;
+    Place a = trail_knot(w, first);
+    for (int64_t i = first; i <= k + radius; i++) {
+        Place b = trail_knot(w, i + 1);
+        paint(pixels, a, b, cx, cz);
+        a = b;
     }
 }

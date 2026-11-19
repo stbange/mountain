@@ -77,8 +77,8 @@ PUBLIC double mountain_path(int index, int axis) {
         return 0;
     return axis ? r->point[index].z : r->point[index].x;
 }
-PUBLIC int mountain_wet(float x, float z) {
-    return height_at(&game.world, x, z) < water_at(&game.world, x, z);
+PUBLIC int mountain_wet(double x, double z) {
+    return height_global(&game.world, x, z) < water_global(&game.world, x, z);
 }
 PUBLIC void mountain_seed(uint32_t seed) {
     int season = game.season, weather = game.weather;
@@ -115,14 +115,33 @@ PUBLIC const char *mountain_option(int kind, int index) {
     return kind ? game.rules->skies[(unsigned)index % WEATHERS]
                 : game.rules->seasons[(unsigned)index % SEASONS];
 }
-PUBLIC float mountain_height(float x, float z) { return height_at(&game.world, x, z); }
+PUBLIC float mountain_height(double x, double z) { return height_global(&game.world, x, z); }
+PUBLIC int mountain_sightings(void) {
+    Animal animals[LOCAL_ANIMALS];
+    int mask = 0;
+    int n = fauna_near(&game, animals, LOCAL_ANIMALS);
+    for (int i = 0; i < n; i++)
+        if (hypotf(animals[i].pos.x - game.x, animals[i].pos.z - game.z) < 72)
+            mask |= 1 << animals[i].kind;
+    return mask;
+}
+PUBLIC const char *mountain_species(int k) {
+    return (unsigned)k < FAUNA_TYPES ? scripts.rules.fauna_names[k] : "";
+}
+PUBLIC double mountain_extension(double index, int axis) {
+    if (!isfinite(index) || index > (double)(INT64_MAX / 64))
+        return NAN;
+    double x, z;
+    trail_coordinates(&game.world, (int64_t)fmax(0, floor(index)), &x, &z);
+    return axis ? z : x;
+}
 PUBLIC float mountain_water(void) { return game.world.water; }
 PUBLIC double mountain_value(int key) {
     switch (key) {
     case 0:
-        return game.x;
+        return game.world.ox + (double)game.x;
     case 1:
-        return game.z;
+        return game.world.oz + (double)game.z;
     case 2:
         return game.yaw;
     case 3:
@@ -169,6 +188,10 @@ PUBLIC double mountain_value(int key) {
         return scripts.rules.survey.seed;
     case 24:
         return game.world.survey ? game.world.survey->scale : 1;
+    case 26:
+        return trail_station(&game.world, game.x, game.z) / TRAIL_STEP;
+    case 27:
+        return fmax(fabs(game.world.ox + (double)game.x), fabs(game.world.oz + (double)game.z));
     case 25:
         return scripts.rules.survey.data != NULL;
     default:

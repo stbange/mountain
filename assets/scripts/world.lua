@@ -9,6 +9,18 @@ return {
              "Larkspur Ridge", "Cloudberry Tarn", "Silver Fir Pass", "Wren Peak" },
   seasons = { "Spring", "Summer", "Autumn", "Winter" },
   skies = { "Clear", "Cloudy", "Rain", "Mist" },
+  fauna_script = "wildlife.lua",
+  fauna_names = { "Mule deer", "Red fox", "Snowshoe hare", "Yellow-bellied marmot", "Golden eagle" },
+  -- Subalpine fir, spruce, larch and aspen.
+  tree_shapes = {
+    {form="whorled", deciduous=false, first_bough=4, bough_variation=3, width=1, droop=1.05, foliage=1},
+    {form="whorled", deciduous=false, first_bough=4, bough_variation=3, width=1, droop=1.72, foliage=1},
+    {form="whorled", deciduous=true, first_bough=9, bough_variation=0, width=1, droop=1.05, foliage=.79},
+    {form="forked", deciduous=true, first_bough=14, bough_variation=0, width=1, droop=0, foliage=1},
+  },
+  needles = {0x436445,0x3d6356,0x749253,0x799951},
+  bark = {0x785d44,0x695747,0x816a49,0xc0b99e},
+  autumn_canopy = {0x476948,0x46695a,0xd5ab48,0xe1ad49},
   -- Atlas tiles for flowering patches, in season order.
   field_tiles = { {12, 8}, {4, 13}, {14, 14}, {5, 5} },
   winter_precipitation = "Snow",

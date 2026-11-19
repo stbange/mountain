@@ -132,6 +132,8 @@ static void grove_support(Game *g) {
                 fabsf(p.z) < 3.9f) {
                 closest = distance;
                 c->anchor = tree;
+                c->anchor_dx = tree.x - c->x;
+                c->anchor_dz = tree.z - c->z;
                 c->tree_supported = true;
             }
         }
@@ -152,6 +154,8 @@ bool game_action(Game *g, Action action) {
         c->angle = g->yaw;
         c->x = g->x + sinf(g->yaw) * 10.8f;
         c->z = g->z - cosf(g->yaw) * 10.8f;
+        c->site_x = g->world.ox + (double)c->x;
+        c->site_z = g->world.oz + (double)c->z;
         {
             Vec threshold = cabin_world(c, 0, 0, 4);
             c->y = fmaxf(water_at(&g->world, threshold.x, threshold.z) + .24f,
@@ -223,6 +227,31 @@ static void move(Game *g, float x, float z) {
     g->x = x;
     g->z = z;
 }
+bool cabin_in_view(const Game *g) {
+    return g->cabin.present &&
+           (g->cabin.inside || hypotf(g->cabin.x - g->x, g->cabin.z - g->z) <= 1000);
+}
+/* A multiple of every placement grid keeps small local coordinates in the
+   renderer, while authoritative sites and terrain cells retain their identity. */
+void world_track(Game *g) {
+    int64_t dx = (int64_t)floor(((double)g->x + WORLD_FRAME * .5) / WORLD_FRAME) * WORLD_FRAME;
+    int64_t dz = (int64_t)floor(((double)g->z + WORLD_FRAME * .5) / WORLD_FRAME) * WORLD_FRAME;
+    if (dx || dz) {
+        g->world.ox += dx;
+        g->world.oz += dz;
+        g->x = (float)((double)g->x - dx);
+        g->z = (float)((double)g->z - dz);
+        if (g->cabin.present) {
+            g->cabin.x = (float)(g->cabin.site_x - g->world.ox);
+            g->cabin.z = (float)(g->cabin.site_z - g->world.oz);
+            if (g->cabin.tree_supported) {
+                g->cabin.anchor.x = g->cabin.x + g->cabin.anchor_dx;
+                g->cabin.anchor.z = g->cabin.z + g->cabin.anchor_dz;
+            }
+        }
+    }
+    trail_window(&g->world, g->x, g->z);
+}
 void game_tick(Game *g, float dt, float f, float r) {
     dt = clampf(dt, 0, .20f);
     g->elapsed += dt;
@@ -236,7 +265,7 @@ void game_tick(Game *g, float dt, float f, float r) {
     if (g->changing_weather)
         g->weather_clock += dt;
     if (g->changing_weather && g->weather_clock >= g->rules->weather_interval) {
-        unsigned pick = hash32(g->world.seed + (uint32_t)g->elapsed);
+        unsigned pick = hash32(g->world.seed + (uint32_t)(uint64_t)g->elapsed);
         g->weather = (g->weather + 1 + (int)(pick % 3)) % WEATHERS;
         g->weather_clock = 0;
     }
@@ -248,5 +277,6 @@ void game_tick(Game *g, float dt, float f, float r) {
         speed *= .70f;
     float x = g->x + speed * (sinf(g->yaw) * f + cosf(g->yaw) * r);
     float z = g->z + speed * (-cosf(g->yaw) * f + sinf(g->yaw) * r);
-    move(g, clampf(x, -1800, 1800), clampf(z, -1800, 1800));
+    move(g, x, z);
+    world_track(g);
 }

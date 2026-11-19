@@ -31,6 +31,19 @@ end
 debug.sethook(trace,"l")
 local world=load("world")
 assert(#world.seasons==4 and #world.skies==4 and #world.trails==8)
+assert(#world.tree_shapes==4 and world.tree_shapes[3].deciduous and world.tree_shapes[4].form=="forked")
+load("wildlife")
+record(build_animal)
+for k=1,#world.fauna_names do
+  for season=0,3 do
+    local count=0
+    build_animal(k,season,.8,.65,20,function(x,y,z,u,v,w,width,depth,c)
+      count=count+1
+      assert((x-u)^2+(y-v)^2+(z-w)^2>0 and width>0 and depth>0 and math.type(c)=="integer")
+    end)
+    assert(count>=6)
+  end
+end
 load("cabin")
 record(build_room);record(room_title)
 local function shapes(i,open,front)

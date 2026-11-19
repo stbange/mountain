@@ -67,6 +67,31 @@ def tap_key(page, key):
     page.keyboard.press(key)
 
 
+def hike_beyond_lookout(page):
+    # Feed time-compressed hiking input through the same compiled actions as the thumb pad.
+    return page.evaluate("""() => {
+      const M=Module, value=M._mountain_value;
+      function walk(x,z) {
+        const dx=x-value(0), dz=z-value(1);
+        M._mountain_look(Math.atan2(dx,-dz)-value(2),0);
+        for(let left=Math.hypot(dx,dz);left>.0001;) {
+          const step=Math.min(left,.8);
+          M._mountain_walk(step/5.3,1,0);
+          left-=step;
+        }
+        if(Math.hypot(x-value(0),z-value(1))>.005 || M._mountain_wet(value(0),value(1)))
+          throw Error("Could not walk the marked trail");
+      }
+      for(let i=1;i<value(20);i++) walk(M._mountain_path(i,0),M._mountain_path(i,1));
+      let sightings=0;
+      for(let i=1;i<=96;i++) {
+        walk(M._mountain_extension(i,0),M._mountain_extension(i,1));
+        if(i%12===0) sightings|=M._mountain_sightings();
+      }
+      return [value(27),value(26),sightings];
+    }""")
+
+
 def test_desktop(browser, url):
     ctx = browser.new_context(
         viewport={"width": 1200, "height": 760}, accept_downloads=True
@@ -162,15 +187,24 @@ def test_desktop(browser, url):
     assert 2100 < v(page, 8) < 2110 and v(page, 22) > 150
     page.click("#map")
     assert page.get_by_text("① Lakeside View", exact=False).is_visible()
+    page.click("#close")
+    distance, station, sightings = hike_beyond_lookout(page)
+    assert distance > 2000 and abs(station - 96) < 0.001 and sightings > 0
+    assert max(ImageStat.Stat(frame(page)).stddev) > 10
+    page.click("#map")
+    assert page.get_by_text("Endless trail", exact=False).is_visible()
+    assert page.get_by_text("m walked", exact=False).is_visible()
     page.get_by_role("button", name="Generate a new mountain").click()
     assert v(page, 7) != 4812
     page.click("#guide")
     assert page.get_by_text("Open a door or cross it", exact=True).is_visible()
+    assert page.get_by_text("Wildlife nearby", exact=True).is_visible()
+    assert page.get_by_text("Mule deer", exact=False).is_visible()
     page.keyboard.press("Escape")
     assert not errors, errors
     ctx.close()
     print(
-        "Desktop hike, cabin, climate, map, camera, PNG download and persistent journal passed.",
+        "Desktop hike beyond two kilometres, remote map and fauna, cabin, climate, PNG and journal passed.",
         flush=True,
     )
 

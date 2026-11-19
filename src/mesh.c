@@ -16,6 +16,8 @@ static Vertex *reserve(Mesh *m, size_t n) {
         return NULL;
     if (m->count + n > m->capacity) {
         size_t next = m->capacity ? m->capacity * 2 : 1024;
+        if (next < m->count + n)
+            next = m->count + n;
         Vertex *v = realloc(m->v, next * sizeof *v);
         if (!v) {
             m->failed = true;
@@ -27,6 +29,25 @@ static Vertex *reserve(Mesh *m, size_t n) {
     Vertex *start = m->v + m->count;
     m->count += n;
     return start;
+}
+void mesh_tree_instance(Mesh *out, const Mesh *model, const Tree *tree, float width, float lean) {
+    Vertex *v = reserve(out, model->count);
+    if (!v)
+        return;
+    float c = cosf(tree->angle) * width, s = sinf(tree->angle) * width;
+    for (size_t i = 0; i < model->count; i++) {
+        Vertex p = model->v[i];
+        float x = p.x + lean * p.y * p.y;
+        v[i] = (Vertex){tree->x + c * x - s * p.z,
+                        tree->y + p.y * tree->height,
+                        tree->z + s * x + c * p.z,
+                        p.r * tree->tint,
+                        p.g * tree->tint,
+                        p.b * tree->tint,
+                        p.u,
+                        p.v,
+                        p.material};
+    }
 }
 static Vertex vertex(Vec p, Color c, float u, float v, float mode) {
     return (Vertex){p.x, p.y, p.z, c.r, c.g, c.b, u, v, mode};

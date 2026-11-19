@@ -76,6 +76,14 @@ bool survey_lake(const Survey *s, float x, float z) {
            0x8000;
 }
 
+float water_global(const World *w, double ax, double az) {
+    if (!w->survey)
+        return w->water;
+    float edge = w->survey->cell * (w->survey->side / 2);
+    return fabs(ax) >= edge || fabs(az) >= edge || survey_lake(w->survey, (float)ax, (float)az)
+               ? w->water
+               : -10000.f;
+}
 float water_at(const World *w, float x, float z) {
-    return !w->survey || survey_lake(w->survey, x, z) ? w->water : -10000.f;
+    return water_global(w, w->ox + (double)x, w->oz + (double)z);
 }

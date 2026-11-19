@@ -45,8 +45,12 @@ static void facet(Mesh *m, const Game *g, Sample a, Sample b, Sample c) {
 #define SIDE (HALF * 2 + 1)
 static Sample terrain_sample(const Game *g, float x, float z) {
     return (Sample){{x, ground(g, x, z), z},
-                    noise2(x * .065f, z * .065f, g->world.seed + 7) * .50f +
-                        noise2(x * .021f, z * .021f, g->world.seed + 79) * .50f};
+                    noise2((g->world.ox + (double)x) * .065, (g->world.oz + (double)z) * .065,
+                           g->world.seed + 7) *
+                            .50f +
+                        noise2((g->world.ox + (double)x) * .021, (g->world.oz + (double)z) * .021,
+                               g->world.seed + 79) *
+                            .50f};
 }
 static void ground_mesh(Mesh *m, const Game *g, float cx, float cz) {
     Sample rows[2][SIDE];
@@ -59,8 +63,14 @@ static void ground_mesh(Mesh *m, const Game *g, float cx, float cz) {
                 bool edge = abs(i) == HALF || abs(j) == HALF;
                 bool inner = lod && (abs(i) == HALF / 2 || abs(j) == HALF / 2);
                 if (!edge && !inner) {
-                    x += (random2((int)x, (int)z, g->world.seed) - .5f) * step * .35f;
-                    z += (random2((int)x, (int)z, g->world.seed + 11) - .5f) * step * .35f;
+                    x += (random2(g->world.ox + (int64_t)floorf(x),
+                                  g->world.oz + (int64_t)floorf(z), g->world.seed) -
+                          .5f) *
+                         step * .35f;
+                    z += (random2(g->world.ox + (int64_t)floorf(x),
+                                  g->world.oz + (int64_t)floorf(z), g->world.seed + 11) -
+                          .5f) *
+                         step * .35f;
                 }
                 int k = i + HALF;
                 row[k] = terrain_sample(g, x, z);
@@ -107,7 +117,7 @@ static void stone(Mesh *m, float x, float y, float z, float r, uint32_t seed) {
         tri(m, ring[i], ring[j], top, c, c, c, 0);
     }
 }
-static void trees(Mesh *m, const Game *g, float cx, float cz) {
+static void trees(Mesh *m, const Forest *forest, const Game *g, float cx, float cz) {
     int cell_x = (int)floorf(cx / 7), cell_z = (int)floorf(cz / 7);
     for (int j = cell_z - 62; j <= cell_z + 62; j++)
         for (int i = cell_x - 62; i <= cell_x + 62; i++) {
@@ -115,52 +125,45 @@ static void trees(Mesh *m, const Game *g, float cx, float cz) {
             if (!world_tree(&g->world, i, j, &tree) || hypotf(tree.x - cx, tree.z - cz) > 425 ||
                 cleared(g, tree.x, tree.z))
                 continue;
-            int tile = tree.tile;
-            if (g->season == 2 && tile == 3)
-                tile = 9;
-            if (g->season == 3)
-                tile = 10;
-            Color tint = shade(rgb(0xf2f2dc), tree.tint);
-            sprite(m, tree.x, tree.y - .27f, tree.z, tree.height * .72f, tree.height, tree.angle,
-                   tile, tint);
-            sprite(m, tree.x, tree.y - .27f, tree.z, tree.height * .72f, tree.height,
-                   tree.angle + PI * .5f, tile, shade(tint, .97f));
+            voxel_tree(m, forest, tree, hypotf(tree.x - cx, tree.z - cz));
         }
     /* Old firs at the trailhead frame the first view. */
     const float anchors[][3] = {
         {-8.6f, -10.5f, 13.2f}, {13.4f, -12.8f, 11.5f}, {-15.2f, -17.6f, 12.0f}};
+    if (g->world.ox || g->world.oz)
+        return;
     float bearing = trail_bearing(&g->world);
     for (int i = 0; i < 3; i++) {
         float ax = anchors[i][0] + g->world.phase, az = anchors[i][1], h = anchors[i][2];
         float x = cosf(bearing) * ax - sinf(bearing) * az,
               z = sinf(bearing) * ax + cosf(bearing) * az;
-        if (g->world.survey || cleared(g, x, z) || route_distance(&g->world.route, x, z) < 3.5f ||
+        if (g->world.survey || cleared(g, x, z) || trail_distance(&g->world, x, z) < 3.5f ||
             hypotf(x - cx, z - cz) > 410)
             continue;
         float y = height_at(&g->world, x, z) - .12f;
-        int tile = g->season == 3 ? 10 : i % 2;
-        Color tint = rgb(0xe5e9da);
-        sprite(m, x, y, z, h * .74f, h, .15f, tile, tint);
-        sprite(m, x, y, z, h * .74f, h, 1.72f, tile, shade(tint, .92f));
+        uint32_t form = cell_hash(i, 907, g->world.seed);
+        Tree tree = {x, y, z, h, .15f + random2(i, 9, g->world.seed), .96f, i % 2, form};
+        voxel_tree(m, forest, tree, hypotf(x - cx, z - cz));
     }
 }
 /* Flower islands and their pollinators share world-space anchors on every visit. */
 static bool flower_patch(const Game *g, int i, int j, Vec *pos) {
     uint32_t seed = g->world.seed;
-    float x = (i + .17f + .64f * random2(i, j, seed + 383)) * 12;
-    float z = (j + .17f + .64f * random2(i, j, seed + 362)) * 12;
-    if (i == 0 && j == -1) {
+    int64_t ix = g->world.ox / 12 + i, iz = g->world.oz / 12 + j;
+    float x = (i + .17f + .64f * random2(ix, iz, seed + 383)) * 12;
+    float z = (j + .17f + .64f * random2(ix, iz, seed + 362)) * 12;
+    if (ix == 0 && iz == -1) {
         float yaw = trail_bearing(&g->world);
-        x = sinf(yaw) * 4.8f - cosf(yaw) * 3.1f;
-        z = -cosf(yaw) * 4.8f - sinf(yaw) * 3.1f;
-        if (route_distance(&g->world.route, x, z) < 2.45f) {
+        x = (float)(sinf(yaw) * 4.8 - cosf(yaw) * 3.1 - g->world.ox);
+        z = (float)(-cosf(yaw) * 4.8 - sinf(yaw) * 3.1 - g->world.oz);
+        if (trail_distance(&g->world, x, z) < 2.45f) {
             x += cosf(yaw) * 6.2f;
             z += sinf(yaw) * 6.2f;
         }
     }
     float y = height_at(&g->world, x, z);
     if (y <= water_at(&g->world, x, z) + .13f || y > 112 || cleared(g, x, z) ||
-        route_distance(&g->world.route, x, z) < 2.45f)
+        trail_distance(&g->world, x, z) < 2.45f)
         return false;
     *pos = (Vec){x, y, z};
     return true;
@@ -177,10 +180,11 @@ static void flower_islands(Mesh *m, const Game *g, float cx, float cz) {
             for (int n = 0; n < 5; n++) {
                 float a = n * 2.41f, x = p.x + cosf(a) * n * .24f, z = p.z + sinf(a) * n * .24f;
                 float y = height_at(&g->world, x, z);
-                if (route_distance(&g->world.route, x, z) < 1.9f || y <= water_at(&g->world, x, z))
+                if (trail_distance(&g->world, x, z) < 1.9f || y <= water_at(&g->world, x, z))
                     continue;
                 int tile = g->rules->field_tiles[g->season][(i + j + n) & 1];
-                float h = .64f + .27f * random2(i + n, j, g->world.seed);
+                float h = .64f + .27f * random2(g->world.ox / 12 + i + n, g->world.oz / 12 + j,
+                                                g->world.seed);
                 sprite(m, x, y - .045f, z, h * 1.35f, h, a, tile, rgb(0xfff8e3));
                 sprite(m, x, y - .045f, z, h * 1.35f, h, a + PI * .5f, tile, rgb(0xf5f0da));
             }
@@ -198,11 +202,13 @@ static void pollinators(Mesh *m, const Game *g) {
             Vec p;
             if (!flower_patch(g, i, j, &p) || hypotf(p.x - g->x, p.z - g->z) > 21)
                 continue;
-            float phase = random2(i, j, g->world.seed + 12) * 2 * PI;
-            bool bee = (i + j) % 3 == 0;
+            float phase =
+                random2(g->world.ox / 12 + i, g->world.oz / 12 + j, g->world.seed + 12) * 2 * PI;
+            bool bee = (g->world.ox / 12 + i + g->world.oz / 12 + j) % 3 == 0;
             if (g->season == 2 && !bee && phase > 2)
                 continue;
-            float t = g->elapsed * (bee ? 1.45f : 1.05f) + phase;
+            float t =
+                (float)fmod(g->elapsed * (bee ? 1.45 : 1.05) + phase, 200.0 * 3.141592653589793);
             float flight = smooth(-.78f, .12f, sinf(t * .47f));
             float x = p.x + flight * (1.45f * sinf(t) + .4f * sinf(2.4f * t));
             float z = p.z + flight * (.9f * cosf(1.6f * t) + .36f * cosf(t));
@@ -241,87 +247,127 @@ static void meadow(Mesh *m, const Game *g, float cx, float cz) {
     int ox = (int)floorf(cx / 1.6f), oz = (int)floorf(cz / 1.6f);
     for (int j = oz - 45; j <= oz + 45; j++)
         for (int i = ox - 45; i <= ox + 45; i++) {
-            float k = random2(i, j, s + 201);
-            float x = (i + random2(i, j, s + 131)) * 1.6f, z = (j + random2(i, j, s + 198)) * 1.6f;
+            int64_t ix = g->world.ox / 8 * 5 + i, iz = g->world.oz / 8 * 5 + j;
+            float k = random2(ix, iz, s + 201);
+            float x = (i + random2(ix, iz, s + 131)) * 1.6f,
+                  z = (j + random2(ix, iz, s + 198)) * 1.6f;
             float dist = hypotf(cx - x, cz - z);
             if (dist > 66 || k < .21f || cleared(g, x, z))
                 continue;
             float h = height_at(&g->world, x, z);
             if (h < water_at(&g->world, x, z) + .12f || h > 128)
                 continue;
-            float path = route_distance(&g->world.route, x, z);
+            float path = trail_distance(&g->world, x, z);
             if (k > .986f && path > 3.3f) {
-                stone(m, x, h - .09f, z, .28f + 1.48f * random2(i, j, s), s + (unsigned)i);
+                stone(m, x, h - .09f, z, .28f + 1.48f * random2(ix, iz, s), s + (unsigned)ix);
                 continue;
             }
             if (path < 1.9f || g->season == 3)
                 continue;
-            float cluster = noise2(x * .11f, z * .11f, s + 21);
+            float cluster =
+                noise2((g->world.ox + (double)x) * .11, (g->world.oz + (double)z) * .11, s + 21);
             int tile = cluster > .58f ? (k > .65f ? g->rules->field_tiles[g->season][k > .87f] : 8)
                                       : (k > .73f ? 6 : 5);
-            float tall = .44f + .71f * random2(i, j, s + 91);
-            float a = random2(i, j, s + 74) * PI;
+            float tall = .44f + .71f * random2(ix, iz, s + 91);
+            float a = random2(ix, iz, s + 74) * PI;
             Color tint = g->season == 2 ? rgb(0xe4cfa4) : rgb(0xf5f3df);
             sprite(m, x, h - .10f, z, tall * 1.40f, tall, a, tile, tint);
             if (dist < 23)
                 sprite(m, x, h - .10f, z, tall * 1.40f, tall, a + PI * .5f, tile, tint);
         }
 }
-static void waymarks(Mesh *m, const Game *g) {
-    const Route *r = &g->world.route;
-    float next = 16, walked = 0;
-    for (int i = 1; i < r->count; i++) {
-        Place a = r->point[i - 1], b = r->point[i];
-        float dx = b.x - a.x, dz = b.z - a.z, len = hypotf(dx, dz);
-        while (next <= walked + len) {
-            float t = (next - walked) / len;
-            float x = mixf(a.x, b.x, t) - 2.65f * dz / len,
-                  z = mixf(a.z, b.z, t) + 2.65f * dx / len;
-            float y = ground(g, x, z);
-            if (!cleared(g, x, z) && y > water_at(&g->world, x, z) &&
-                route_distance(r, x, z) > 1.8f) {
-                Pose p = {{x, y, z}, atan2f(dx, -dz)};
-                box_material(m, p, (Vec){0, .58f, 0}, (Vec){.13f, 1.20f, .15f}, rgb(0x88714e), 3);
-                box(m, p, (Vec){0, .99f, 0}, (Vec){.14f, .11f, .16f}, rgb(0xf6e4b9));
-                box(m, p, (Vec){0, .89f, 0}, (Vec){.14f, .09f, .16f}, rgb(0xa95032));
+static void blaze(Mesh *m, const Game *g, Place a, Place b, float t) {
+    float dx = b.x - a.x, dz = b.z - a.z, len = hypotf(dx, dz);
+    float x = mixf(a.x, b.x, t) - 2.65f * dz / len, z = mixf(a.z, b.z, t) + 2.65f * dx / len;
+    float y = ground(g, x, z);
+    if (cleared(g, x, z) || y <= water_at(&g->world, x, z) ||
+        trail_distance(&g->world, x, z) <= 1.8f)
+        return;
+    Pose p = {{x, y, z}, atan2f(dx, -dz)};
+    box_material(m, p, (Vec){0, .58f, 0}, (Vec){.13f, 1.20f, .15f}, rgb(0x88714e), 3);
+    box(m, p, (Vec){0, .99f, 0}, (Vec){.14f, .11f, .16f}, rgb(0xf6e4b9));
+    box(m, p, (Vec){0, .89f, 0}, (Vec){.14f, .09f, .16f}, rgb(0xa95032));
+}
+static void cairn(Mesh *m, const Game *g, Place a, Place b, uint32_t seed) {
+    float dx = b.x - a.x, dz = b.z - a.z, len = hypotf(dx, dz);
+    float x = b.x + 2.5f * dz / len, z = b.z - 2.5f * dx / len, y = ground(g, x, z);
+    if (cleared(g, x, z) || y < water_at(&g->world, x, z))
+        return;
+    stone(m, x, y, z, .72f, seed);
+    stone(m, x + .05f, y + .43f, z, .44f, seed + 1);
+    stone(m, x, y + .68f, z - .04f, .26f, seed + 2);
+}
+static void waymarks(Mesh *m, const Game *g, float cx, float cz) {
+    const World *w = &g->world;
+    const Route *r = &w->route;
+    if (fabs(w->ox + (double)cx) < 650 && fabs(w->oz + (double)cz) < 650) {
+        float next = 16, walked = 0;
+        for (int i = 1; i < r->count; i++) {
+            Place a = r->point[i - 1], b = r->point[i];
+            a.x -= w->ox;
+            a.z -= w->oz;
+            b.x -= w->ox;
+            b.z -= w->oz;
+            float len = hypotf(b.x - a.x, b.z - a.z);
+            while (next <= walked + len) {
+                blaze(m, g, a, b, (next - walked) / len);
+                next += 36;
             }
-            next += 36;
-        }
-        walked += len;
-        if (i == r->overlook || i == r->count - 1) {
-            float x = b.x + 2.5f * dz / len, z = b.z - 2.5f * dx / len, y = ground(g, x, z);
-            if (cleared(g, x, z) || y < water_at(&g->world, x, z))
-                continue;
-            stone(m, x, y, z, .72f, g->world.seed);
-            stone(m, x + .05f, y + .43f, z, .44f, g->world.seed + 1);
-            stone(m, x, y + .68f, z - .04f, .26f, g->world.seed + 2);
+            walked += len;
+            if (i == r->overlook || i == r->count - 1)
+                cairn(m, g, a, b, w->seed);
         }
     }
+    int64_t center = (int64_t)floor(trail_station(w, cx, cz) / TRAIL_STEP);
+    int64_t first = center > 12 ? center - 12 : 0;
+    for (int64_t i = first; i <= center + 12; i++) {
+        Place a = trail_knot(w, i), b = trail_knot(w, i + 1);
+        if (hypotf(a.x - cx, a.z - cz) > 265)
+            continue;
+        if (i % 2 == 0)
+            blaze(m, g, a, b, .4f);
+        if ((i + 1) % 16 == 0)
+            cairn(m, g, a, b, cell_hash(i, 5, w->seed));
+    }
 }
-
-void landscape(Mesh *m, const Game *g, float cx, float cz) {
+static void water_patch(Mesh *m, float y, float x0, float z0, float x1, float z1) {
+    if (x1 > x0 && z1 > z0)
+        quad(m, (Vec){x0, y, z0}, (Vec){x1, y, z0}, (Vec){x1, y, z1}, (Vec){x0, y, z1},
+             rgb(0x568e92), 2);
+}
+void landscape(Mesh *m, Forest *forest, const Game *g, float cx, float cz) {
     mesh_clear(m);
     ground_mesh(m, g, cx, cz);
-    float w = g->world.water, r = 2400;
-    const Survey *s = g->world.survey;
+    const World *w = &g->world;
+    float y = w->water, r = 2400, x0 = cx - r, z0 = cz - r, x1 = cx + r, z1 = cz + r;
+    const Survey *s = w->survey;
     if (s) {
-        for (int j = s->shore[2] - 1; j <= s->shore[3]; j++)
-            for (int i = s->shore[0] - 1; i <= s->shore[1]; i++) {
-                float x = (i - (int)(s->side / 2)) * s->cell;
-                float z = (j - (int)(s->side / 2)) * s->cell, d = s->cell;
-                if (survey_lake(s, x + d * .5f, z + d * .5f))
-                    quad(m, (Vec){x, w, z}, (Vec){x + d, w, z}, (Vec){x + d, w, z + d},
-                         (Vec){x, w, z + d}, rgb(0x568e92), 2);
-            }
+        float edge = s->cell * (s->side / 2);
+        float west = clampf((float)(-edge - w->ox), x0, x1),
+              east = clampf((float)(edge - w->ox), x0, x1);
+        float north = clampf((float)(-edge - w->oz), z0, z1),
+              south = clampf((float)(edge - w->oz), z0, z1);
+        water_patch(m, y, x0, z0, west, z1);
+        water_patch(m, y, east, z0, x1, z1);
+        water_patch(m, y, west, z0, east, north);
+        water_patch(m, y, west, south, east, z1);
+        if (fabs(w->ox + (double)cx) < r + 250 && fabs(w->oz + (double)cz) < r + 250)
+            for (int j = s->shore[2] - 1; j <= s->shore[3]; j++)
+                for (int i = s->shore[0] - 1; i <= s->shore[1]; i++) {
+                    float x = (i - (int)(s->side / 2)) * s->cell,
+                          z = (j - (int)(s->side / 2)) * s->cell, d = s->cell;
+                    if (survey_lake(s, x + d * .5f, z + d * .5f))
+                        water_patch(m, y, x - w->ox, z - w->oz, x + d - w->ox, z + d - w->oz);
+                }
     } else
-        quad(m, (Vec){-r, w, -r}, (Vec){r, w, -r}, (Vec){r, w, r}, (Vec){-r, w, r}, rgb(0x568e92),
-             2);
-    trees(m, g, cx, cz);
+        water_patch(m, y, x0, z0, x1, z1);
+    forest_prepare(forest, g);
+    trees(m, forest, g, cx, cz);
     meadow(m, g, cx, cz);
     flower_islands(m, g, cx, cz);
-    waymarks(m, g);
+    waymarks(m, g, cx, cz);
 }
-static void foundations(Mesh *m, const Game *g, Pose pose) {
+static void foundations(Mesh *m, const Forest *forest, const Game *g, Pose pose) {
     const Cabin *c = &g->cabin;
     for (int i = -2; i <= 2; i++)
         for (int j = -1; j <= 1; j += 2) {
@@ -349,19 +395,19 @@ static void foundations(Mesh *m, const Game *g, Pose pose) {
         box_material(m, pose, (Vec){local.x * .56f, -.22f, local.z},
                      (Vec){fabsf(local.x) * .96f, .35f, .44f}, rgb(0x805a3c), 3);
         float crown = fmaxf(c->y + 3.92f, foot + t.height * .43f), h = top - crown;
-        int tile = g->season == 3 ? 10 : (g->season == 2 && t.tile == 3 ? 9 : t.tile);
-        sprite(m, t.x, crown, t.z, h * .88f, h, t.angle, tile, rgb(0xe4e7ca));
-        sprite(m, t.x, crown, t.z, h * .88f, h, t.angle + PI * .5f, tile, rgb(0xdce0c8));
+        t.y = crown;
+        t.height = h;
+        voxel_tree(m, forest, t, hypotf(t.x - g->x, t.z - g->z));
     }
 }
 void cabin_mesh(Mesh *m, Script *s, const Game *g) {
     mesh_clear(m);
     const Cabin *c = &g->cabin;
-    if (!c->present)
+    if (!cabin_in_view(g))
         return;
     Pose p = {{c->x, c->y, c->z}, c->angle};
     if (!c->inside || !c->room)
-        foundations(m, g, p);
+        foundations(m, &s->forest, g, p);
     uint64_t index = c->inside ? c->room : 0;
     script_room(s, m, p, index, c->open, index == 0);
     if (c->inside || c->open) {
@@ -374,31 +420,19 @@ void cabin_mesh(Mesh *m, Script *s, const Game *g) {
         }
     }
 }
-void wildlife(Mesh *m, const Game *g) {
+void wildlife(Mesh *m, Script *script, const Game *g) {
     mesh_clear(m);
     pollinators(m, g);
-    float t = g->elapsed;
     uint32_t s = g->world.seed;
-    float flight_level = height_at(&g->world, 62, -108) + 38;
-    /* Flocks wheel above the ridgeline; deer browse at the meadow edge. */
-    for (int i = 0; i < 8; i++) {
-        float a = t * .062f + i * .19f;
-        float x = 44 + sinf(a) * 33 + i * 2.4f, z = -108 + cosf(a) * 16 + i * 1.7f,
-              y = flight_level + sinf(a * .8f + i) * 3.6f;
-        float flap = sinf(t * 3.6f + i * 1.93f) * .43f;
-        Vec body = {x, y, z}, tail = {x + .06f, y - .09f, z + .32f},
-            l = {x - .84f, y + flap, z + .14f}, r = {x + .84f, y + flap, z + .14f};
-        Color ink = rgb(0x494f4c);
-        tri(m, body, l, tail, ink, ink, ink, 0);
-        tri(m, body, r, tail, ink, ink, ink, 0);
-    }
-    for (int i = 0; i < 7; i++) {
-        float x = 13 + i * 14 + 3 * sinf(t * .038f + i), z = -13 + 11 * cosf(i * 3.2f + t * .022f);
-        float h = height_at(&g->world, x, z);
-        if (h > water_at(&g->world, x, z) && !cleared(g, x, z)) {
-            float yaw = atan2f(g->z - z, g->x - x) - PI * .5f;
-            sprite(m, x, h - .03f, z, 2.1f, 1.68f, yaw, 7, shade(rgb(0xffecd1), .86f));
-        }
+    Animal animals[LOCAL_ANIMALS];
+    int n = fauna_near(g, animals, LOCAL_ANIMALS);
+    for (int i = 0; i < n; i++) {
+        const Animal *a = &animals[i];
+        if (script->rules.fauna_script[0])
+            script_animal(script, m, a, g->season);
+        else if (a->kind == DEER)
+            sprite(m, a->pos.x, a->pos.y, a->pos.z, 2.1f, 1.68f,
+                   atan2f(g->z - a->pos.z, g->x - a->pos.x) - PI * .5f, 7, rgb(0xf5e5cd));
     }
     if (g->weather == 2) {
         Vec p = eye(g);
@@ -406,7 +440,7 @@ void wildlife(Mesh *m, const Game *g) {
         for (int i = 0; i < 110; i++) {
             float x = p.x + (random2(i, 1, s) - .5f) * 23, z = p.z + (random2(i, 2, s) - .5f) * 23;
             float speed = g->season == 3 ? 1.4f : 8.5f;
-            float y = p.y + 8 - fmodf(t * speed + random2(i, 3, s) * 14, 14);
+            float y = p.y + 8 - (float)fmod(g->elapsed * speed + random2(i, 3, s) * 14, 14);
             if (g->cabin.inside && cleared(g, x, z))
                 continue;
             float width = g->season == 3 ? .022f : .011f, length = g->season == 3 ? .05f : .29f;

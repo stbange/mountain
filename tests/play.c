@@ -21,28 +21,51 @@ static void walk(int frames, float forward, float right) {
     for (int i = 0; i < frames; i++)
         mountain_walk(.05f, forward, right);
 }
+static bool walk_to(double x, double z) {
+    double dx = x - mountain_value(0), dz = z - mountain_value(1);
+    mountain_look((float)(atan2(dx, -dz) - mountain_value(2)), 0);
+    double remaining = hypot(dx, dz);
+    while (remaining > .0001) {
+        double step = fmin(remaining, .8);
+        mountain_walk((float)(step / 5.3), 1, 0);
+        remaining -= step;
+        REQUIRE(!mountain_wet(mountain_value(0), mountain_value(1)));
+    }
+    REQUIRE(hypot(x - mountain_value(0), z - mountain_value(1)) < .005);
+    return true;
+}
 static bool walk_route(uint32_t seed) {
     mountain_seed(seed);
     int count = (int)mountain_value(20), stop = (int)mountain_value(21);
     REQUIRE(stop > 0 && stop < count - 1);
     for (int i = 1; i < count; i++) {
-        double x = mountain_path(i, 0), z = mountain_path(i, 1);
-        double dx = x - mountain_value(0), dz = z - mountain_value(1);
-        mountain_look((float)(atan2(dx, -dz) - mountain_value(2)), 0);
-        double length = hypot(dx, dz), remaining = length;
-        while (remaining > .0001) {
-            double step = fmin(remaining, .8);
-            mountain_walk((float)(step / 5.3), 1, 0);
-            remaining -= step;
-            REQUIRE(!mountain_wet((float)mountain_value(0), (float)mountain_value(1)));
-        }
-        REQUIRE(hypot(x - mountain_value(0), z - mountain_value(1)) < .005);
+        REQUIRE(walk_to(mountain_path(i, 0), mountain_path(i, 1)));
         if (i == stop || i == count - 1) {
             mountain_frame();
             REQUIRE(display_sample(480, 300) != 0);
         }
     }
     REQUIRE(fabs(mountain_value(15) - mountain_value(22)) < .02);
+    double ridge_x = mountain_value(0), ridge_z = mountain_value(1);
+    float ridge_height = mountain_height(ridge_x, ridge_z);
+    int sightings = 0;
+    for (int i = 1; i <= 104; i++) {
+        REQUIRE(walk_to(mountain_extension(i, 0), mountain_extension(i, 1)));
+        if (i % 16 == 0)
+            sightings |= mountain_sightings();
+    }
+    REQUIRE(sightings && mountain_value(27) > 2300 && fabs(mountain_value(26) - 104) < .001);
+    mountain_frame();
+    REQUIRE(display_sample(480, 300) != 0);
+    REQUIRE(mountain_action(ACT_CABIN) && mountain_action(ACT_USE) && mountain_action(ACT_USE));
+    REQUIRE(mountain_value(11) && mountain_action(ACT_HOME));
+    REQUIRE(mountain_action(ACT_USE) && !mountain_value(11));
+    REQUIRE(mountain_action(ACT_CABIN));
+    for (int i = 103; i >= 0; i--)
+        REQUIRE(walk_to(mountain_extension(i, 0), mountain_extension(i, 1)));
+    REQUIRE(hypot(ridge_x - mountain_value(0), ridge_z - mountain_value(1)) < .005);
+    REQUIRE(fabs(ridge_height - mountain_height(ridge_x, ridge_z)) < .001);
+    REQUIRE(mountain_value(15) > 5000);
     return true;
 }
 static bool run(void) {
@@ -92,7 +115,8 @@ int main(int argc, char **argv) {
     bool passed = run();
     mountain_close();
     if (passed)
-        puts("Live game passed: collision, visible doorway, walking across three rooms, returning "
-             "home, conditions and photograph.");
+        puts("Live game passed. Both mountains supported a five-kilometre round trip, distant "
+             "wildlife "
+             "and a remote cabin visit. Doorways, room travel, conditions and photography passed.");
     return passed ? 0 : 1;
 }
