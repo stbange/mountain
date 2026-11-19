@@ -7,7 +7,7 @@ permissions:
   contents: read
 concurrency:
   group: mountain-main-playtest
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   linux:
@@ -15,7 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install graphics and audio development headers
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxfixes-dev libxcursor-dev libxi-dev libxss-dev libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev libasound2-dev
+        run: |
+          packages=(ninja-build libx11-dev libxext-dev libxrandr-dev libxfixes-dev libxcursor-dev libxi-dev libxss-dev libgl-dev libegl-dev libgles-dev libasound2-dev)
+          missing=()
+          for pkg in "${packages[@]}"; do
+            dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'install ok installed' || missing+=("$pkg")
+          done
+          if (( ${#missing[@]} )); then
+            sudo apt-get install -y --no-install-recommends "${missing[@]}" || { sudo apt-get update && sudo apt-get install -y --no-install-recommends "${missing[@]}"; }
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -87,8 +95,7 @@ jobs:
       - name: Test the browser, touch and stereo paths
         run: |
           python3 -m pip install -r tests/requirements.txt
-          python3 -m playwright install --with-deps chromium
-          python3 tests/browser.py build-web/play
+          CHROMIUM="$(command -v google-chrome)" python3 tests/browser.py build-web/play
       - uses: actions/upload-artifact@v4
         with:
           name: Mountain-Web

@@ -2,7 +2,9 @@
 
 A quiet first-person hiking game set on Earth. Walk down from Larkspur Ridge, wait for the light on the lake, and take a photograph. Call a wood cabin onto the trail when you want to come inside.
 
-[Play the browser build](https://stbange.github.io/mountain/) · [Download desktop builds from the latest successful playtest run](https://github.com/stbange/mountain/actions/workflows/playtest.yml)
+[Play the browser build](https://raw.githack.com/stbange/mountain/gh-page/index.html) · [Download desktop builds from the latest successful playtest run](https://github.com/stbange/mountain/actions/workflows/playtest.yml)
+
+![An in-game summer photograph of the lake below Larkspur Ridge](docs/larkspur-ridge.png)
 
 ## On the trail
 
@@ -81,6 +83,6 @@ Use a fresh coverage build to measure the unit run independently. For headless L
 
 ## Branches and licensing
 
-Development takes place on **main**. **gh-page** contains the staged browser distribution. The playtest workflow builds Linux, Windows and Web, runs their checks and advances gh-page after they pass. GitHub Pages serves its root.
+Development takes place on **main**. **gh-page** contains the staged browser distribution. The playtest workflow builds Linux, Windows and Web, runs their checks and advances gh-page after they pass. The play link above serves that branch through Raw.githack. To use the repository’s own GitHub Pages address, select **Deploy from a branch → gh-page → / (root)** in [Pages settings](https://github.com/stbange/mountain/settings/pages).
 
 Code and shaders are licensed under [MIT](LICENSE). Original sprite art, models, palette work, interface artwork and ambience are licensed under [CC BY 4.0](assets/LICENSE-ART.txt). [Art attribution](assets/CREDITS.txt) and [third-party notices](THIRD-PARTY.txt) accompany the distributions.
