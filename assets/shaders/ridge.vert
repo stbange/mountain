@@ -4,6 +4,7 @@ attribute vec3 a_uvm;
 uniform mat4 u_vp;
 uniform mat4 u_inverse;
 uniform vec3 u_eye;
+uniform float u_clock;
 uniform int u_layer;
 varying vec3 v_pos;
 varying vec3 v_colour;
@@ -12,7 +13,11 @@ varying float v_dist;
 void main() {
     v_colour=a_colour; v_uvm=a_uvm; v_pos=a_pos;
     if(u_layer==0) {
-        gl_Position=u_vp*vec4(a_pos,1.0);
+        if(a_uvm.z>1.2 && a_uvm.z<1.3) {
+            float tip=1.0-fract(a_uvm.y*4.0);
+            v_pos.x+=tip*tip*(.055*sin(u_clock*1.7+a_pos.z*.35)+.03*sin(u_clock*2.1+a_pos.x*.42));
+        }
+        gl_Position=u_vp*vec4(v_pos,1.0);
         v_dist=length(a_pos-u_eye);
     } else {
         gl_Position=vec4(a_pos.xy,0.995,1.0);

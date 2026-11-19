@@ -34,7 +34,9 @@ window.mountainXR = {
       const ref = await session.requestReferenceSpace("local");
       let last = 0,
         turned = false,
-        summoned = false;
+        summoned = false,
+        seasonHeld = false,
+        weatherHeld = false;
       const leave = () => {
         this.session = null;
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -54,7 +56,9 @@ window.mountainXR = {
           let forward = 0,
             right = 0,
             turn = 0,
-            button = false;
+            button = false,
+            season = false,
+            weather = false;
           for (const source of session.inputSources) {
             const gp = source.gamepad;
             if (!gp) continue;
@@ -65,6 +69,8 @@ window.mountainXR = {
               turn = x;
               button = Boolean(gp.buttons[4]?.pressed);
             } else {
+              season = Boolean(gp.buttons[4]?.pressed);
+              weather = Boolean(gp.buttons[5]?.pressed);
               right = Math.abs(x) > 0.15 ? x : 0;
               forward = Math.abs(y) > 0.15 ? -y : 0;
             }
@@ -72,6 +78,10 @@ window.mountainXR = {
           if (Math.abs(turn) > 0.7 && !turned)
             Module._mountain_look((Math.sign(turn) * Math.PI) / 6, 0);
           turned = Math.abs(turn) > 0.5;
+          if (season && !seasonHeld) act(4);
+          if (weather && !weatherHeld) act(5);
+          seasonHeld = season;
+          weatherHeld = weather;
           if (button && !summoned) act(1);
           summoned = button;
           const rot = pose.transform.orientation,

@@ -4,6 +4,8 @@ varying vec3 v_uvm;
 varying float v_dist;
 uniform sampler2D u_atlas;
 uniform sampler2D u_lake;
+uniform sampler2D u_trail;
+uniform float u_season;
 uniform int u_reflection;
 uniform float u_water;
 uniform vec4 u_viewport;
@@ -81,16 +83,29 @@ void main() {
         float detail=noise(v_pos.xz*.87+v_pos.y*.2);
         col*=.963+.08*detail;
         if(mat>3.5 && mat<4.5) {
+            vec3 normal=vec3(v_uvm.x,sqrt(max(.001,1.0-dot(v_uvm.xy,v_uvm.xy))),v_uvm.y);
+            float direct=max(0.0,dot(normal,u_sun));
+            float sunlight=(.87+.24*direct);
+            col*=mix(1.0,sunlight,weather==0.0?day:.25*day);
             float crag=smoothstep(49.0,155.0,v_pos.y);
             float seams=noise(vec2(v_pos.x*.065+v_pos.z*.036+v_pos.y*.023,v_pos.y*.027))+detail*.18;
-            col*=1.0-crag*smoothstep(.48,.83,seams)*.19;
+            col*=1.0-crag*smoothstep(.48,.83,seams)*.22;
+            col+=vec3(.16,.07,.028)*direct*warmth*crag*day;
+            float distanceToTrail=6.0*texture2D(u_trail,v_pos.xz/512.0+.5).r;
+            float edge=distanceToTrail+(noise(v_pos.xz*1.35)-.5)*.56;
+            float tread=1.0-smoothstep(1.15,2.12,edge);
+            vec3 grit=mix(vec3(.49,.37,.25),vec3(.76,.64,.45),detail);
+            grit=mix(grit,vec3(.64,.70,.70),step(2.5,u_season)*.86);
+            float gravel=noise(v_pos.xz*7.0);
+            grit*=.90+.13*gravel+.09*smoothstep(.71,.88,gravel);
+            col=mix(col,grit*sunlight,tread*.97);
         }
     }
     vec3 tint=mix(vec3(.23,.31,.48),vec3(1.0,.99,.94),day);
     tint+=vec3(.09,.005,-.065)*warmth*day;
     col*=tint;
     if(mat>4.5) col=mix(col,v_colour, .81);
-    float fograte=weather==3.0?.0065:(weather==2.0?.0037:(weather==1.0?.0019:.00122));
+    float fograte=weather==3.0?.0065:(weather==2.0?.0037:(weather==1.0?.0019:.00078));
     float fog=1.0-exp(-dist*fograte);
     vec3 fogcol=mix(u_horizon,mix(vec3(.43,.53,.63),vec3(.62,.69,.72),day),.48*day);
     col=mix(col,fogcol,fog*.91);

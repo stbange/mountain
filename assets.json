@@ -7,5 +7,6 @@
   "assets/scripts/world.lua",
   "assets/shaders/ridge.frag",
   "assets/shaders/ridge.vert",
-  "assets/sound/ridge.wav"
+  "assets/sound/ridge.wav",
+  "assets/terrain/taggart.mht"
 ]

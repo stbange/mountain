@@ -4,3 +4,6 @@ License: https://creativecommons.org/licenses/by/4.0/
 Source: https://github.com/stbange/mountain
 Attribution: “Mountain field art and ambience” by Mountain contributors (CC BY 4.0). Indicate changes when adapting.
 Code, Lua source and shaders: MIT; see LICENSE in the source repository. The bundled DM Sans and Instrument Serif typefaces are under the SIL Open Font License. Their notices accompany the web fonts. SDL and Lua retain their own notices in THIRD-PARTY.txt.
+
+Taggart Lake elevations are derived from public-domain U.S. Geological Survey 3D Elevation Program (3DEP) data, 1 arc-second product, tile n44w111. Mountain contributors resampled the survey and identified the lake surface. The hike, vegetation and seasonal appearance are composed for the game.
+Source: https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF/current/n44w111/USGS_1_n44w111.tif
