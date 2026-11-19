@@ -6,6 +6,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* A compositor-owned XR framebuffer has no Emscripten GLuint name.
+   Preserve its actual WebGL object while drawing the lake reflection. */
+EM_JS(void, save_browser_target, (void), {
+    Module['mountainSavedTarget'] = GLctx.getParameter(GLctx.FRAMEBUFFER_BINDING);
+});
+EM_JS(void, restore_browser_target, (void), {
+    GLctx.bindFramebuffer(GLctx.FRAMEBUFFER, Module['mountainSavedTarget']);
+    Module['mountainSavedTarget'] = null;
+});
+#endif
+
 /* Core GL 2 / GLES 2 operations, resolved from the active SDL context. */
 #define FUNCTIONS(X)                                                                               \
     X(GLuint, CreateShader, (GLenum))                                                              \
@@ -357,8 +370,12 @@ static void outdoor(Display *d, Viewport vp) {
     draw(d->life);
 }
 static void lake_reflection(Display *d, const Game *g, Viewport vp, Mat projection, Mat view) {
+#ifdef __EMSCRIPTEN__
+    save_browser_target();
+#else
     GLint previous = 0;
     qGetIntegerv(GL_FRAMEBUFFER_BINDING, &previous);
+#endif
     bool fresh = !d->lake_fb;
     if (fresh) {
         qGenFramebuffers(1, &d->lake_fb);
@@ -398,7 +415,11 @@ static void lake_reflection(Display *d, const Game *g, Viewport vp, Mat projecti
         d->lake_weather = g->weather;
         d->lake_view = scene;
     }
+#ifdef __EMSCRIPTEN__
+    restore_browser_target();
+#else
     qBindFramebuffer(GL_FRAMEBUFFER, (GLuint)previous);
+#endif
     qUniform1i(d->reflect, 0);
     qUniform4f(d->viewport, (float)vp.x, (float)vp.y, (float)vp.w, (float)vp.h);
     qActiveTexture(GL_TEXTURE1);

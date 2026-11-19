@@ -222,7 +222,7 @@ def test_headset(browser, url):
     page.get_by_role("button", name="Enter VR").click()
     page.wait_for_function("testHeadset.frames>=3")
     eyes = page.evaluate("testHeadset.lastEyes")
-    assert eyes[0][1] > 20 and eyes[1][1] > 20 and eyes[0][0] != eyes[1][0]
+    assert eyes[0][1] > 20 and eyes[1][1] > 20 and eyes[0][0] != eyes[1][0], eyes
     assert v(page, 15) > 0
     page.evaluate(
         "testHeadset.yaw=.4;testHeadset.session.dispatchEvent(new Event('squeeze'))"
