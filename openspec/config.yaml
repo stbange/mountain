@@ -1,0 +1,3 @@
+schema: spec-driven
+context: |
+  Mountain is a quiet first-person Earth hiking game. The portable engine uses C11, SDL3 and OpenGL. Lua and art ship as loose assets. Development takes place on main. The gh-page branch contains the playable web distribution.
