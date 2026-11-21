@@ -25,7 +25,7 @@ The main room SHALL contain a bed, kitchen, writing desk and bookcase. The cabin
 - **THEN** the landscape reclaims the site
 
 ### Requirement: Persistent branching rooms
-Every room SHALL have doors on at least three walls. The front of the Hearth Room SHALL lead outdoors. Its rear and right doors, and those of each discovered room, SHALL start closed. Opening an unexplored door SHALL create one connected room before revealing it. Both sides SHALL share the door state. Discovered layouts, connections, windows and interior doors SHALL survive dismissal, destination changes and a restart. The renderer SHALL keep only the current room and open doorway views in memory as geometry.
+Every room SHALL have doors on at least three walls. The front of the Hearth Room SHALL lead outdoors. Rear and right doors SHALL start closed. Opening an unexplored door SHALL generate and reveal one room. Both sides SHALL share its door state. Layouts, connections, windows and interior doors SHALL survive dismissal, destination changes and a restart. The renderer SHALL hold geometry for the active room and its open doorway views.
 
 #### Scenario: Open a branch
 - **WHEN** a hiker walks up against an unexplored door
