@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "walk.h"
 
 static int assertions;
 #define CHECK(e)                                                                                   \
@@ -272,8 +273,15 @@ static void endless_terrain(const Rules *rules) {
                 route_texture(&g.world, g.x, g.z, map);
                 int center = (TRAIL_TEXTURE_SIZE / 2) * (TRAIL_TEXTURE_SIZE + 1);
                 CHECK(map[center] < 45);
-                int across = g.world.trail.dx ? 24 * TRAIL_TEXTURE_SIZE : 24;
-                CHECK(map[center + across] == 255 || map[center - across] == 255);
+                bool off_path = false;
+                for (int side = -48; side <= 48; side += 12) {
+                    int dx = g.world.trail.dx ? 0 : side, dz = g.world.trail.dx ? side : 0;
+                    float distance = trail_distance(&g.world, g.x + dx + .5f, g.z + dz + .5f);
+                    int expected = (int)fminf(255, distance * 42.5f);
+                    CHECK(abs(map[center + dz * TRAIL_TEXTURE_SIZE + dx] - expected) <= 1);
+                    off_path |= expected == 255;
+                }
+                CHECK(off_path);
             }
         }
         observe(&g, 0, 0);
@@ -312,6 +320,212 @@ static void endless_terrain(const Rules *rules) {
     CLOSE(g.cabin.x, site_x);
     CLOSE(g.cabin.z, site_z);
 }
+static void expeditions(Script *script) {
+    const Rules *r = &script->rules;
+    CHECK(r->place_count == 12);
+    uint32_t collection = 0;
+    Mesh mesh = {0};
+    for (int i = 0; i < r->place_count; i++) {
+        Game g;
+        const Destination *d = &r->places[i];
+        game_init(&g, r, d->seed);
+        World *w = &g.world;
+        CHECK(w->place == d && w->profile == (Profile)i && d->art && *d->stops[1]);
+        CHECK(destination_for_seed(r, d->seed) == i);
+        for (int j = 0; j < PROP_KINDS * PROP_FORMS; j++)
+            CHECK(d->art[j].count > 0);
+        g.notes = collection;
+        field_refresh(&g);
+        CHECK(field_stage(&g) == 0 && !strcmp(field_hint(&g), d->notes[0]));
+        Place first = field_site(w, 0), second = field_site(w, 1), last = field_site(w, 2);
+        CHECK(hypot(first.x - second.x, first.z - second.z) > 10 &&
+              hypot(last.x - second.x, last.z - second.z) > 10);
+        observe(&g, last.x, last.z);
+        CHECK(!field_read(&g));
+        observe(&g, first.x, first.z);
+        g.cabin.inside = true;
+        CHECK(field_near(&g) == NEAR_NONE);
+        g.cabin.inside = false;
+        CHECK(game_near(&g) == NEAR_READ && game_action(&g, ACT_USE) && field_stage(&g) == 1);
+        CHECK(strstr(field_hint(&g), "Head "));
+        observe(&g, second.x, second.z);
+        mesh_clear(&mesh);
+        field_scenery(&mesh, &g);
+        CHECK(mesh.count > 0);
+        float yaw = atan2f(last.x - second.x, second.z - last.z);
+        if (d->skill == ALIGN) {
+            g.yaw = yaw + PI;
+            CHECK(!field_read(&g) && strstr(field_hint(&g), "Sight"));
+            g.yaw = yaw;
+        } else if (d->skill == DUSK) {
+            g.hour = 11;
+            CHECK(!field_read(&g) && strstr(field_hint(&g), "evening"));
+            g.hour = 17.25f;
+        } else {
+            observe(&g, second.x - 5.5 * sinf(yaw), second.z + 5.5 * cosf(yaw));
+            CHECK(!field_read(&g) && strstr(field_hint(&g), "beside"));
+            Place tall = field_pipe(w, 2);
+            observe(&g, tall.x, tall.z);
+            CHECK(!field_read(&g) && g.chimes == 0);
+            for (int j = 0; j < 3; j++) {
+                Place p = field_pipe(w, j);
+                observe(&g, p.x, p.z);
+                if (j < 2)
+                    CHECK(!field_read(&g) && g.chimes == j + 1);
+            }
+        }
+        CHECK(game_action(&g, ACT_USE) && field_stage(&g) == 2);
+        field_refresh(&g);
+        CHECK(strstr(field_hint(&g), d->signs[2]));
+        observe(&g, last.x, last.z);
+        mesh_clear(&mesh);
+        field_scenery(&mesh, &g);
+        CHECK(mesh.count >= d->art[RELIC * PROP_FORMS].count / 3);
+        CHECK(game_near(&g) == NEAR_TREASURE && game_action(&g, ACT_USE));
+        CHECK(field_stage(&g) == 3 && field_near(&g) == NEAR_NONE && !field_read(&g));
+        field_refresh(&g);
+        CHECK(strstr(field_hint(&g), "Discovered"));
+        collection = g.notes;
+        if (i >= COAST) {
+            uint32_t other_seed = d->seed + 500;
+            World other;
+            world_destination(&other, other_seed, r, i);
+            CHECK(other.profile == w->profile && other.route.count == w->route.count);
+            bool different = false;
+            for (int k = -4; k <= 4; k++) {
+                double x = 93456000. + 123 * k, z = -64227009. - 237 * k;
+                float h = realm_height(w, x, z);
+                CHECK(isfinite(h));
+                different |= fabsf(h - realm_height(&other, x, z)) > .3f;
+            }
+            CHECK(different);
+            for (int k = 0; k < w->route.count; k++) {
+                Place p = w->route.point[k];
+                CHECK(height_global(w, p.x, p.z) > water_global(w, p.x, p.z));
+            }
+            double tx, tz;
+            trail_coordinates(w, 80002, &tx, &tz);
+            observe(&g, tx, tz);
+            CHECK(trail_distance(w, g.x, g.z) < .002 &&
+                  ground(&g, g.x, g.z) > water_at(w, g.x, g.z));
+            observe(&g, 0, 0);
+            if (i == DUNES) {
+                CHECK(realm_height(w, -46, -110) < water_global(w, -46, -110));
+                int ci = 4, cj = -3;
+                double x = (ci + .25 + .5 * random2(ci, cj, w->seed + 194)) * 640,
+                       z = (cj + .25 + .5 * random2(ci, cj, w->seed + 206)) * 640;
+                CHECK(oasis_distance(w, x, z) < .001 &&
+                      height_global(w, x, z) < water_global(w, x, z));
+                CHECK(realm_height(w, x + 110, z) > 20);
+            }
+            if (i == LUNAR)
+                CHECK(water_global(w, 0, 0) < -1000 && !strcmp(weather_label(&g, 2), "Airless"));
+            if (i == COAST || i == BASALT)
+                CHECK(realm_height(w, -75, 0) < 0 && realm_height(w, 45, 0) > 5);
+            Tree tree;
+            Animal animals[LOCAL_ANIMALS];
+            CHECK(!world_tree(w, 0, 0, &tree) && !fauna_near(&g, animals, LOCAL_ANIMALS));
+            mesh_clear(&mesh);
+            realm_scenery(&mesh, &g, 0, 0);
+            CHECK(mesh.count > 0);
+            g.hour = 13;
+            mesh_clear(&mesh);
+            realm_life(&mesh, &g);
+            if (i == LUNAR)
+                CHECK(!mesh.count);
+            else if (i != DUNES)
+                CHECK(mesh.count > 0);
+        }
+    }
+    CHECK(collection == 0xffffff);
+    mesh_free(&mesh);
+}
+static void high_passes(const Rules *rules) {
+    World w;
+    world_init(&w, 4812, rules);
+    for (int n = 0; n < 3; n++) {
+        int64_t valley = (int64_t)((1050 + n * 7800) / TRAIL_STEP);
+        int64_t pass = valley + 3900 / TRAIL_STEP;
+        CHECK(alpine_pass_height(&w, (double)pass * TRAIL_STEP) > 260);
+        double x, z;
+        trail_coordinates(&w, pass, &x, &z);
+        float summit = height_global(&w, x, z);
+        CHECK(summit > 235);
+        trail_coordinates(&w, valley, &x, &z);
+        CHECK(summit - height_global(&w, x, z) > 100);
+        /* Sample the profile across both shoulders and its rolling-window seams. */
+        float prev = 0;
+        for (int64_t i = valley; i <= valley + 320; i++) {
+            trail_coordinates(&w, i, &x, &z);
+            w.ox = (int64_t)floor(x / WORLD_FRAME + .5) * WORLD_FRAME;
+            w.oz = (int64_t)floor(z / WORLD_FRAME + .5) * WORLD_FRAME;
+            trail_window(&w, (float)(x - w.ox), (float)(z - w.oz));
+            float h = height_global(&w, x, z);
+            CHECK(i == valley || fabsf(prev - h) < .32f * TRAIL_STEP + .004f);
+            prev = h;
+        }
+    }
+}
+static void alpine_footing(const Rules *rules) {
+    Game g;
+    const uint32_t seeds[] = {4812, 7, 42};
+    for (int q = 0; q < 3; q++) {
+        game_init(&g, rules, seeds[q]);
+        World *w = &g.world;
+        const Ascent *a = &w->ascent;
+        CHECK(a->count == 23 && a->pass > 1 && a->pass < a->count - 2);
+        Place pass = field_site(w, 1), top = field_site(w, 2);
+        float summit = height_global(w, top.x, top.z);
+        CHECK(summit - a->base > 445 && height_global(w, pass.x, pass.z) > a->base + 160);
+        for (int k = 0; k < 8; k++) {
+            float angle = k * PI / 4;
+            float slope = height_global(w, pass.x + 12 * cosf(angle), pass.z + 12 * sinf(angle)) -
+                          height_global(w, pass.x, pass.z);
+            CHECK(fabsf(slope) < 17);
+        }
+        CHECK(a->level[a->pass] < a->level[a->pass - 2] &&
+              a->level[a->pass] < a->level[a->pass + 2]);
+        for (int i = 1; i < a->count; i++) {
+            Place b = a->point[i], p = a->point[i - 1];
+            float len = hypotf(b.x - p.x, b.z - p.z);
+            float prev = height_global(w, p.x, p.z);
+            for (int k = 1; k <= 20; k++) {
+                float x = mixf(p.x, b.x, k / 20.f), z = mixf(p.z, b.z, k / 20.f),
+                      h = height_global(w, x, z);
+                CHECK(ascent_distance(w, x, z) < .002 && fabsf(h - prev) < len / 20 * .61f);
+                prev = h;
+            }
+        }
+        observe(&g, top.x, top.z);
+        g.safe_x = top.x;
+        g.safe_z = top.z;
+        g.notes = 2;
+        g.yaw = atan2f(a->along.x, -a->along.z);
+        bool exposed = false;
+        for (int i = 0; i < 105 && !g.fall_time; i++) {
+            game_tick(&g, .045f, 1, 0);
+            exposed |= g.exposed && !g.fall_time;
+        }
+        CHECK(exposed && g.fall_time > 0 && !game_action(&g, ACT_CABIN));
+        float before = eye(&g).y;
+        game_tick(&g, .15f, 0, 0);
+        CHECK(eye(&g).y < before);
+        for (int i = 0; i < 8; i++)
+            game_tick(&g, .17f, 0, 0);
+        CHECK(!g.fall_time && g.falls == 1 && g.warning_timer > 0 && g.notes == 2);
+        CLOSE(g.world.ox + (double)g.x, g.safe_x);
+        CLOSE(g.world.oz + (double)g.z, g.safe_z);
+        CHECK(game_action(&g, ACT_CABIN));
+        g.safe_x += 250000000.375;
+        g.safe_z -= 807000000.125;
+        g.fall_time = .01f;
+        CHECK(footing_recover(&g, .1f));
+        CLOSE(g.world.ox + (double)g.x, g.safe_x);
+        CLOSE(g.world.oz + (double)g.z, g.safe_z);
+        CHECK(g.cabin.present && g.falls == 2);
+    }
+}
+
 static void living_world(Script *script) {
     Game g;
     game_init(&g, &script->rules, 4812);
@@ -370,7 +584,8 @@ static void living_world(Script *script) {
     int all = 0, far = 0;
     for (int j = -3; j <= 3; j++)
         for (int i = -3; i <= 3; i++) {
-            observe(&g, 1000000 + i * 173., -2500000 + j * 139.);
+            /* Sample both the wooded valleys and the snowy uplands. */
+            observe(&g, 1000000 + i * 1430., -2500000 + j * 1370.);
             game_conditions(&g, 1, 0, 9);
             Animal a[LOCAL_ANIMALS], again[LOCAL_ANIMALS];
             int n = fauna_near(&g, a, LOCAL_ANIMALS);
@@ -600,6 +815,51 @@ static void platform(const char *assets) {
     CHECK(mountain_value(8) > 2100 && mountain_value(8) < 2110);
     CHECK(mountain_wet(-110, -20) && !mountain_wet(0, 0));
     CHECK(mountain_path(-1, 0) == 0 && mountain_path(0, 1) == 0 && mountain_path(0, 0) == 0);
+    CHECK(!mountain_visit(-1) && !mountain_visit(16) && !*mountain_entry(40, 0));
+    CHECK(isnan(mountain_ascent(-1, 0)) && !mountain_observe(0));
+    event_key(SDLK_RIGHTBRACKET);
+    event_key(SDLK_LEFTBRACKET);
+    CHECK(mountain_sound());
+    for (int i = 0; i < 12; i++) {
+        CHECK(mountain_visit(i));
+        CHECK(!strcmp(mountain_entry(i, 0), mountain_label(0)) &&
+              !strcmp(mountain_entry(i, 1), mountain_label(9)));
+        for (int k = 6; k <= 11; k++)
+            CHECK(*mountain_label(k));
+        CHECK(*mountain_entry(i, 2) &&
+              !strcmp(mountain_entry(i, 3), i >= LUNAR ? "Beyond Earth" : "Earth"));
+        for (int k = 28; k <= 37; k++)
+            CHECK(isfinite(mountain_value(k)));
+        if (i == ALPINE)
+            CHECK(isfinite(mountain_ascent(2, 1)) && isfinite(mountain_ascent(4, 0)));
+        if (i == BASALT) {
+            for (int k = 1; k <= 7; k++) {
+                CHECK(walk_to(mountain_path(k, 0), mountain_path(k, 1)));
+                if (k == 3)
+                    CHECK(mountain_action(ACT_USE));
+            }
+            double yaw = atan2(mountain_path(14, 0) - mountain_path(7, 0),
+                               mountain_path(7, 1) - mountain_path(14, 1));
+            for (int j = 0; j < 3; j++) {
+                CHECK(walk_to(mountain_path(7, 0) + 3.5 * cos(yaw) + (j - 1) * 3.2 * sin(yaw),
+                              mountain_path(7, 1) + 3.5 * sin(yaw) - (j - 1) * 3.2 * cos(yaw)));
+                CHECK(mountain_observe(0) == (j == 2));
+            }
+            CHECK(mountain_value(30) == 2);
+        }
+        if (i == DUNES || i == LUNAR || i == REEFS || i == CINDER || i == PRISM) {
+            mountain_conditions(3, 2, 17.1f);
+            CHECK(*mountain_option(1, 2));
+            mountain_frame();
+            CHECK(display_sample(260, 160));
+        }
+    }
+    mountain_variant(752);
+    CHECK(mountain_value(28) == CINDER && mountain_value(7) == 752);
+    mountain_visit(0);
+    mountain_variant(3102);
+    CHECK(mountain_value(28) == ALPINE && mountain_value(7) == 3102);
+    CHECK(!mountain_sound());
     SDL_Event mouse = {0};
     mouse.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     SDL_PushEvent(&mouse);
@@ -616,6 +876,10 @@ static void platform(const char *assets) {
     /* Verify missing rendering assets don't leave resources live. */
     CHECK(display_open("/no-shaders") == NULL);
     mountain_close();
+    CHECK(mountain_open(assets, 180, 120) && mountain_visit(BASALT));
+    CHECK(mountain_value(30) == 2 && strstr(mountain_label(8), mountain_entry(BASALT, 2)));
+    mountain_close();
+    SDL_RemovePath(test_notes);
 }
 int main(int argc, char **argv) {
     CHECK(argc == 2);
@@ -628,9 +892,13 @@ int main(int argc, char **argv) {
     hiking(&s.rules);
     marked_hikes(&s.rules, argv[1]);
     endless_terrain(&s.rules);
+    expeditions(&s);
+    alpine_footing(&s.rules);
+    high_passes(&s.rules);
     living_world(&s);
     composition(&s);
     script_close(&s);
+    isolated_journal();
     platform(argv[1]);
     printf("%d unit assertions passed.\n", assertions);
     return 0;

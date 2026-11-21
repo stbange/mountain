@@ -46,10 +46,15 @@ def site(args):
 
 def ready(page, url):
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_function(
-        "document.querySelector('#loading')?.hidden && Module._mountain_value(17)===1",
-        timeout=90000,
-    )
+    try:
+        page.wait_for_function(
+            "document.querySelector('#loading')?.hidden && Module._mountain_value(17)===1",
+            timeout=90000,
+        )
+    except Exception as exc:
+        raise AssertionError(
+            "Game startup stopped at " + page.locator("#loading").inner_text()
+        ) from exc
 
 
 def v(page, key):
@@ -92,6 +97,80 @@ def hike_beyond_lookout(page):
     }""")
 
 
+def choose(page, name, touch=False):
+    def activate(control):
+        control.tap() if touch else control.click()
+
+    activate(page.locator("#map"))
+    activate(page.get_by_role("button", name="Choose a destination"))
+    assert page.locator(".atlas-card").count() == 12
+    page.wait_for_function(
+        "Array.from(document.querySelectorAll('.atlas-card img')).every(i=>i.complete && i.naturalWidth>0)"
+    )
+    activate(page.get_by_role("button", name=name, exact=True))
+    assert page.locator("h1").text_content() == name.split(" · ")[0]
+
+
+def trail_leg(page, start, end):
+    page.evaluate(
+        """([start,end])=>{
+        const M=Module,v=M._mountain_value;
+        M._mountain_pause(1);
+        for(let i=start;i<=end;i++){
+            const x=M._mountain_path(i,0),z=M._mountain_path(i,1);
+            let dx=x-v(0),dz=z-v(1);
+            M._mountain_look(Math.atan2(dx,-dz)-v(2),0);
+            for(let left=Math.hypot(dx,dz);left>.0001;){
+              const step=Math.min(left,.8);M._mountain_walk(step/5.3,1,0);left-=step;
+            }
+            if(Math.hypot(x-v(0),z-v(1))>.01 || v(35))throw Error('Could not reach the field sign on foot');
+        }
+        refresh();
+    }""",
+        [start, end],
+    )
+
+
+def walk_sahara_discovery(page, url):
+    choose(page, "Erg Chebbi · Sahara, Morocco")
+    assert v(page, 28) == 3
+    trail_leg(page, 1, 3)
+    page.click("#use")
+    assert v(page, 30) == 1
+    trail_leg(page, 4, 7)
+    page.click("#conditions")
+    page.get_by_role("button", name="Midday", exact=True).click()
+    page.click("#close")
+    page.click("#use")
+    assert v(page, 30) == 1 and "evening" in page.locator("#toast").text_content()
+    page.click("#conditions")
+    page.get_by_role("button", name="Golden hour", exact=True).click()
+    page.click("#close")
+    page.click("#use")
+    assert v(page, 30) == 2
+    page.click("#guide")
+    assert "Caravans' Star" in page.locator(".expedition-note").text_content()
+    page.click("#close")
+    trail_leg(page, 8, 14)
+    page.click("#use")
+    assert v(page, 30) == 3
+    ready(page, url)
+    choose(page, "Mare Imbrium · Earth's Moon")
+    assert page.locator("#skies").text_content() == "Airless"
+    page.click("#guide")
+    assert "Caravans' Star" in page.locator(".expedition-note").text_content()
+    page.click("#close")
+    choose(page, "Erg Chebbi · Sahara, Morocco")
+    assert v(page, 30) == 3
+    page.click("#cabin")
+    page.click("#use")
+    page.click("#use")
+    assert v(page, 11) == 1
+    page.get_by_role("button", name="Hearth room", exact=False).click()
+    page.click("#use")
+    page.click("#cabin")
+
+
 def test_desktop(browser, url):
     ctx = browser.new_context(
         viewport={"width": 1200, "height": 760}, accept_downloads=True
@@ -114,6 +193,10 @@ def test_desktop(browser, url):
     assert abs(v(page, 2) - angle) > 0.04
     page.click("#map")
     assert page.locator(".map-frame").evaluate("(c)=>c.width") > 100
+    before = page.locator(".map-frame").evaluate("(c)=>c.toDataURL()")
+    page.get_by_role("button", name="Summit route", exact=True).click()
+    assert page.locator(".map-frame").evaluate("(c)=>c.toDataURL()") != before
+    page.get_by_role("button", name="Local map", exact=True).click()
     page.fill("#seed", "4812")
     page.get_by_role("button", name="Hike", exact=True).click()
     assert v(page, 15) == 0
@@ -197,14 +280,15 @@ def test_desktop(browser, url):
     page.get_by_role("button", name="Generate a new mountain").click()
     assert v(page, 7) != 4812
     page.click("#guide")
-    assert page.get_by_text("Open a door or cross it", exact=True).is_visible()
+    assert page.get_by_text("Use a door or read a field sign", exact=True).is_visible()
     assert page.get_by_text("Wildlife nearby", exact=True).is_visible()
     assert page.get_by_text("Mule deer", exact=False).is_visible()
     page.keyboard.press("Escape")
+    walk_sahara_discovery(page, url)
     assert not errors, errors
     ctx.close()
     print(
-        "Desktop hike beyond two kilometres, remote map and fauna, cabin, climate, PNG and journal passed.",
+        "Desktop hiking, summit map, all twelve atlas photographs, Sahara discovery, journal reload, cabin, climate and PNG passed.",
         flush=True,
     )
 
@@ -250,6 +334,8 @@ def test_touch(browser, url):
     page.get_by_role("button", name="Mist", exact=True).tap()
     page.tap("#close")
     assert (v(page, 5), v(page, 6)) == (0, 3)
+    choose(page, "Sarakiniko · Milos, Greece", touch=True)
+    assert v(page, 28) == 2
     page.tap("#cabin")
     page.tap("#use")
     page.tap("#use")
@@ -293,9 +379,27 @@ def test_headset(browser, url):
     page.evaluate("testHeadset.session.end()")
     assert page.evaluate("mountainXR.session===null")
     assert max(ImageStat.Stat(frame(page)).stddev) > 15
+    choose(page, "Mare Imbrium · Earth's Moon")
+    trail_leg(page, 1, 3)
+    page.click("#guide")
+    page.get_by_role("button", name="Enter VR").click()
+    page.evaluate("testHeadset.session.inputSources[0].gamepad.axes=[0,0,0,0]")
+    page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
+    assert v(page, 30) == 1
+    trail_leg(page, 4, 7)
+    page.evaluate("""()=>{let target=Math.atan2(Module._mountain_path(14,0)-val(0),val(1)-Module._mountain_path(14,1));
+        Module._mountain_look(target+1-val(2),0);testHeadset.yaw=0;window.eyeCount=testHeadset.frames;}""")
+    page.wait_for_function("testHeadset.frames>window.eyeCount+1")
+    page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
+    assert v(page, 30) == 1
+    page.evaluate("testHeadset.yaw=1;window.eyeCount=testHeadset.frames")
+    page.wait_for_function("testHeadset.frames>window.eyeCount+1")
+    page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
+    assert v(page, 30) == 2
+    page.evaluate("testHeadset.session.end()")
     ctx.close()
     print(
-        "Emulated WebXR stereo frames, tracking, locomotion, cabin input and session exit passed.",
+        "Emulated WebXR stereo, locomotion, cabin input, lunar sight alignment with head tracking and session exit passed.",
         flush=True,
     )
 
@@ -306,18 +410,17 @@ if __name__ == "__main__":
     p.add_argument("--url")
     args = p.parse_args()
     with site(args) as url, sync_playwright() as driver:
-        browser = driver.chromium.launch(
-            executable_path=os.environ.get("CHROMIUM") or None,
-            args=[
-                "--no-sandbox",
-                "--use-angle=swiftshader",
-                "--enable-unsafe-swiftshader",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        try:
-            test_desktop(browser, url)
-            test_touch(browser, url)
-            test_headset(browser, url)
-        finally:
-            browser.close()
+        for playtest in (test_desktop, test_touch, test_headset):
+            browser = driver.chromium.launch(
+                executable_path=os.environ.get("CHROMIUM") or None,
+                args=[
+                    "--no-sandbox",
+                    "--use-angle=swiftshader",
+                    "--enable-unsafe-swiftshader",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+            try:
+                playtest(browser, url)
+            finally:
+                browser.close()

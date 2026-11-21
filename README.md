@@ -1,6 +1,6 @@
 # Mountain
 
-A quiet first-person hiking game set on Earth. Follow the trail from Larkspur Ridge to the lake, then keep walking into new mountain ranges. Wait for the light to reach a summit or a deer to lift its head, and take a photograph. Call a wood cabin onto the trail when you want to come inside.
+A quiet first-person hiking game with twelve destinations on Earth and beyond. Follow a marked trail to a snowy pass, listen for a note on a black-sand beach, or photograph Earth above a crater rim. Call a wood cabin into the landscape when you want to come inside.
 
 [Play the browser build](https://stbange.github.io/mountain/) · [Download desktop builds from the latest successful playtest run](https://github.com/stbange/mountain/actions/workflows/playtest.yml)
 
@@ -13,6 +13,37 @@ Larkspur Ridge opens at a meadow trailhead. Follow the earth path and the timber
 Choose **Taggart Lake · Wyoming** in the map to walk beneath the Teton Range. The terrain comes from USGS 3DEP public-domain survey elevations. In this play-scale landscape each game metre represents five metres of terrain horizontally and vertically. The map and altimeter report geographic metres. Beyond the survey boundary, the measured landscape blends into imagined alpine backcountry. The game generates the route, plants and wildlife throughout. [USGS source and attribution](assets/CREDITS.txt)
 
 ![The Teton Range and the shore of Taggart Lake, photographed from the trail’s first cairn](docs/taggart-lake.png)
+
+## The high route
+
+At **Ridge Lookout**, follow the blue and white blazes on the summit branch to climb switchbacks into permanent snow. The High Pass dips between two horns. The narrower upper ridge leads to the summit and a view back down the route. The climb gains roughly 450–550 game metres depending on the seed. Open **Trail map → Summit route** to see the whole ascent. The other trail at the fork crosses a succession of snowy high passes and lower valleys as you hike farther into the backcountry.
+
+Watch the ground past the last cairn. Moving toward a steep drop brings up a footing warning. If you step over it, you fall briefly and return to the last safe section of trail. You keep your photographs, field notes and cabin.
+
+![Snow poles trace the upper ridge below a dark alpine horn, seen from the summit in late afternoon](docs/summit-route.webp)
+
+## Destinations and discoveries
+
+Open **Trail map → Choose a destination** on the web, or use **[** and **]** on desktop. The five new Earth hikes are procedural interpretations of their regions. The existing Taggart Lake hike uses survey elevations. Beyond Earth, Mare Imbrium is a procedural lunar landscape, and the other four settings are fictional.
+
+| Destination | What to look for | Field skill |
+| --- | --- | --- |
+| Larkspur Ridge | A split cairn at the fork, then brass needles in the snow | Take a bearing |
+| Taggart Lake, Wyoming | Amber flakes left on a glacial erratic | Read evening light |
+| Sarakiniko, Milos, Greece | Peach shells on white tuff above the Aegean | Take a bearing |
+| Erg Chebbi, Sahara, Morocco | Salt-marked reeds and a sundial between palm oases | Read evening light |
+| Reynisfjara, Iceland | Hollow basalt columns on black sand | Sound three notes |
+| Canyonlands, Utah | Turquoise seams in sandstone fins above the canyon | Take a bearing |
+| Li River, Guilin, China | Cut bamboo pipes beneath limestone towers | Sound three notes |
+| Mare Imbrium, the Moon | Silver survey reflectors on the ejecta | Take a bearing |
+| Prism Choir | Singing facets growing from a violet ridge | Sound three notes |
+| Lantern Mycelium | Spore cups and luminous gills beneath giant caps | Read evening light |
+| The Hanging Sea | Coral vanes below floating reefs and a ringed planet | Take a bearing |
+| Emberglass Caldera | Obsidian splinters above a glowing caldera | Sound three notes |
+
+Read the first sign with **E**, the touch interaction prompt or **Select** in VR. Follow what it tells you. For a sighting, look along the pair of markers. For a sound puzzle, walk to each pipe and sound it from shortest to tallest. For an evening reading, wait for the light or choose **Golden hour**. The last clue points toward a treasure you can see, approach and photograph. The field guide keeps your clues and collection across visits and restarts on the same device. All discoveries are optional. **Generate a new trail here** opens a different seed in the same region.
+
+## Life on the mountain
 
 Open **Season & weather** or click the season beside your elevation. Pick spring, summer, autumn or winter and choose the sky or time of day. A manual selection holds that condition. **Cycle through seasons** and **Let the weather change** run independently. Changing trails retains your chosen conditions. Spring glacier lilies give way to summer paintbrush and lupines, then autumn seed heads. In suitable daylight, butterflies and bumblebees visit the flowers. Winter precipitation falls as snow.
 
@@ -35,7 +66,7 @@ Firs, spruce, larches and aspens grow from seeded voxel trunks and branches. Lar
 | Conditions | V opens the web panel. Y changes season, U changes weather and T advances the hour. Native I toggles seasonal cycling and O toggles changing weather. | Season & weather |
 | Destination | Trail map on web. On native, B opens Taggart Lake and N generates a new mountain. | Trail map |
 
-On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to use a door, and squeeze to summon or dismiss outdoors. On controllers with X and Y face buttons, X changes season and Y changes weather. WebXR requires HTTPS or localhost.
+On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to read a sign or use a door, and squeeze to summon or dismiss outdoors. On controllers with X and Y face buttons, X changes season and Y changes weather. The right secondary face button advances the time of day for dusk clues. WebXR requires HTTPS or localhost.
 
 ## Build
 
@@ -65,18 +96,20 @@ Open http://localhost:8000/. Serve the entire directory. The loader reads the ma
 | src/world.c, src/backcountry.c and src/game.c | Seeded ridges, continuous trail sections, local coordinates, hiking and cabin state |
 | src/route.c and src/survey.c | Grade-aware trail search, viewpoint selection, trail texture and survey interpolation |
 | assets/terrain/taggart.mht | Resampled public-domain terrain and lake footprint |
+| src/realms.c, src/expedition.c and src/landmarks.c | Regional landforms, graded summit route, footing, field clues and scenery placement |
 | src/forest.c and src/fauna.c | Voxel tree growth, seasonal crowns, wildlife habitats and movement |
 | src/mesh.c, src/scene.c and src/render.c | Terrain meshes, meadow sprites, reflective water, window views and OpenGL passes |
 | src/script.c | Loads Lua content and exposes room and animal geometry builders |
 | src/app.c and web/ | SDL input, sound and photos, browser controls, journal and WebXR |
 | assets/scripts/world.lua | Starting trail, relief, water, pace, clock, names, tree branching shapes and seasonal palettes |
 | assets/scripts/wildlife.lua | Animal anatomy, coats, gait, posture and wing animation |
+| assets/scripts/destinations.lua and assets/scripts/landmarks.lua | Atlas entries, discovery text, profile palettes and landmark shape builders |
 | assets/scripts/cabin.lua | Floor plans, window openings, furniture, fixtures, materials and room titles |
 | assets/art, assets/shaders and assets/sound | Original bitmap art, GLSL and loopable PCM ambience |
 
 To reproduce the Taggart Lake terrain asset, run `python tools/prepare_taggart.py USGS_1_n44w111.tif assets/terrain/taggart.mht` with Pillow installed. The input tile used for this release has SHA-256 `ec3e6b490cdd5035af94952a0d6b4415c42b15da6a85ebeae75edaeb51c9afe5`. The preparation tool records the trailhead coordinates and samples a 40-metre grid.
 
-Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw and optional roof tilt. Room zero is the main cabin. The renderer holds the active room and its immediate neighbours, so memory usage stays bounded as the hiker explores. Additional terrain types or planetary sky models can extend the C generator and the Lua world definition.
+Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw and optional roof tilt. Room zero is the main cabin. The renderer holds the active room and its immediate neighbours, so memory usage stays bounded as the hiker explores. Destination slots in destinations.lua identify saved journal entries. Append slots to extend a content pack. A destination selects a C terrain profile and a field skill. Its Lua artwork uses tapered strokes to construct scenery and relics, and the atlas photography lives in web/ui/atlas/.
 
 ## Specifications and tests
 

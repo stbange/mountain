@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include <math.h>
 #include <stdio.h>
+#include "walk.h"
 
 #define REQUIRE(x)                                                                                 \
     do {                                                                                           \
@@ -20,19 +21,6 @@ static void press(SDL_Keycode key) {
 static void walk(int frames, float forward, float right) {
     for (int i = 0; i < frames; i++)
         mountain_walk(.05f, forward, right);
-}
-static bool walk_to(double x, double z) {
-    double dx = x - mountain_value(0), dz = z - mountain_value(1);
-    mountain_look((float)(atan2(dx, -dz) - mountain_value(2)), 0);
-    double remaining = hypot(dx, dz);
-    while (remaining > .0001) {
-        double step = fmin(remaining, .8);
-        mountain_walk((float)(step / 5.3), 1, 0);
-        remaining -= step;
-        REQUIRE(!mountain_wet(mountain_value(0), mountain_value(1)));
-    }
-    REQUIRE(hypot(x - mountain_value(0), z - mountain_value(1)) < .005);
-    return true;
 }
 static bool walk_route(uint32_t seed) {
     mountain_seed(seed);
@@ -68,6 +56,73 @@ static bool walk_route(uint32_t seed) {
     REQUIRE(mountain_value(15) > 5000);
     return true;
 }
+static bool expedition_walk(int id) {
+    REQUIRE(mountain_visit(id));
+    const int pass = (int)mountain_value(32), ascent = (int)mountain_value(31);
+    const int count = (int)mountain_value(20), stop = (int)mountain_value(21);
+    const int first = ascent ? count - 1 : stop > 3 ? stop / 2 : 1;
+    for (int i = 1; i < count; i++) {
+        REQUIRE(walk_to(mountain_path(i, 0), mountain_path(i, 1)));
+        if (i == first)
+            REQUIRE(mountain_value(13) == NEAR_READ && mountain_action(ACT_USE) &&
+                    mountain_value(30) == 1);
+        if (i == stop && !ascent) {
+            double x = mountain_path(i, 0), z = mountain_path(i, 1);
+            double yaw = atan2(mountain_path(count - 1, 0) - x, z - mountain_path(count - 1, 1));
+            if (id == SURVEYED || id == DUNES || id == FUNGAL) {
+                mountain_conditions(1, 0, 12);
+                REQUIRE(!mountain_action(ACT_USE));
+                mountain_conditions(1, 0, 17.5f);
+                REQUIRE(mountain_action(ACT_USE));
+            } else if (id == BASALT || id == KARST || id == PRISM || id == CINDER) {
+                for (int n = 0; n < 3; n++) {
+                    REQUIRE(walk_to(x + 3.5 * cos(yaw) + (n - 1) * 3.2 * sin(yaw),
+                                    z + 3.5 * sin(yaw) - (n - 1) * 3.2 * cos(yaw)));
+                    REQUIRE(mountain_action(ACT_USE) == (n == 2));
+                }
+                REQUIRE(walk_to(x, z));
+            } else {
+                mountain_look((float)(yaw + PI - mountain_value(2)), 0);
+                REQUIRE(!mountain_action(ACT_USE));
+                REQUIRE(mountain_observe(PI));
+            }
+            REQUIRE(mountain_value(30) == 2);
+        }
+    }
+    if (ascent) {
+        for (int k = 1; k < ascent; k++) {
+            REQUIRE(walk_to(mountain_ascent(k, 0), mountain_ascent(k, 1)));
+            if (k == pass) {
+                double yaw = atan2(mountain_ascent(ascent - 1, 0) - mountain_value(0),
+                                   mountain_value(1) - mountain_ascent(ascent - 1, 1));
+                mountain_look((float)(yaw - mountain_value(2)), 0);
+                REQUIRE(mountain_action(ACT_USE) && mountain_value(30) == 2);
+            }
+        }
+    }
+    REQUIRE(mountain_value(35) == 0 && mountain_value(13) == NEAR_TREASURE);
+    REQUIRE(mountain_action(ACT_USE) && mountain_value(30) == 3);
+    mountain_frame();
+    REQUIRE(display_sample(480, 300));
+    if (ascent) {
+        double dx = mountain_ascent(ascent - 1, 0) - mountain_ascent(0, 0);
+        double dz = mountain_ascent(ascent - 1, 1) - mountain_ascent(0, 1);
+        mountain_look((float)(atan2(dx, -dz) - mountain_value(2)), 0);
+        bool warned = false;
+        for (int k = 0; k < 150 && mountain_value(33) != 2; k++) {
+            mountain_walk(.045f, 1, 0);
+            warned |= mountain_value(33) == 1;
+        }
+        REQUIRE(warned && mountain_value(33) == 2);
+        for (int k = 0; k < 14; k++)
+            mountain_walk(.1f, 0, 0);
+        REQUIRE(mountain_value(35) == 1 && mountain_value(33) == 3 && mountain_value(30) == 3);
+        for (int k = ascent - 2; k >= 0; k--)
+            REQUIRE(walk_to(mountain_ascent(k, 0), mountain_ascent(k, 1)));
+    }
+    return true;
+}
+
 static bool run(void) {
     mountain_frame();
     uint32_t trail = display_sample(480, 300);
@@ -107,15 +162,25 @@ static bool run(void) {
     REQUIRE(mountain_photo());
     REQUIRE(walk_route((uint32_t)mountain_value(23)));
     REQUIRE(walk_route(4812));
+    REQUIRE(mountain_sound());
+    for (int i = 0; i < (int)mountain_value(29); i++) {
+        if (i == PRISM)
+            REQUIRE(!mountain_sound());
+        REQUIRE(expedition_walk(i));
+    }
+    REQUIRE((uint32_t)mountain_value(34) == 0xffffff);
     return true;
 }
 int main(int argc, char **argv) {
+    isolated_journal();
     if (argc != 2 || !mountain_open(argv[1], 480, 300))
         return 1;
     bool passed = run();
     mountain_close();
+    SDL_RemovePath(test_notes);
     if (passed)
-        puts("Live game passed. Both mountains supported a five-kilometre round trip, distant "
+        puts("Live game passed. All twelve treasure hunts, the summit climb and fall recovery "
+             "passed. Both mountains supported a five-kilometre round trip, distant "
              "wildlife "
              "and a remote cabin visit. Doorways, room travel, conditions and photography passed.");
     return passed ? 0 : 1;

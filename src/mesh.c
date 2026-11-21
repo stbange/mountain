@@ -49,6 +49,22 @@ void mesh_tree_instance(Mesh *out, const Mesh *model, const Tree *tree, float wi
                         p.material};
     }
 }
+void instance(Mesh *out, const Mesh *shape, Pose pose, float scale) {
+    if (!shape->count)
+        return;
+    Vertex *vertices = reserve(out, shape->count);
+    if (!vertices)
+        return;
+    float c = cosf(pose.angle) * scale, s = sinf(pose.angle) * scale;
+    for (size_t i = 0; i < shape->count; i++) {
+        Vertex v = shape->v[i];
+        float x = v.x, z = v.z;
+        v.x = pose.origin.x + c * x - s * z;
+        v.y = pose.origin.y + v.y * scale;
+        v.z = pose.origin.z + s * x + c * z;
+        vertices[i] = v;
+    }
+}
 static Vertex vertex(Vec p, Color c, float u, float v, float mode) {
     return (Vertex){p.x, p.y, p.z, c.r, c.g, c.b, u, v, mode};
 }

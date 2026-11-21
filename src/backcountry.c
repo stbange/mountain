@@ -1,6 +1,20 @@
 #include "mountain.h"
 #include <math.h>
 
+/* Broad uplands alternate with lower valleys along the mountain chain. Even the
+   tallest 400-metre uplift changes by less than 25 metres per 144-metre station. */
+float alpine_pass_height(const World *w, double along) {
+    if (w->profile != ALPINE)
+        return 0;
+    double distance = fabs(along) - 1050;
+    if (distance <= 0)
+        return 0;
+    const double span = 7800;
+    int64_t region = (int64_t)floor(distance / span);
+    float phase = (float)((distance - region * span) / span);
+    float height = 265 + 135 * random2(region, along < 0 ? -11 : 11, w->seed + 127);
+    return height * smooth(0, .48f, phase) * (1 - smooth(.53f, 1, phase));
+}
 /* Coordinates of the starter mountain are fixed. All distant ridges are
    addressed by their own lattice cell, including on the negative axes. */
 static float ranges(const World *w, double x, double z) {
@@ -21,15 +35,22 @@ static float ranges(const World *w, double x, double z) {
             float angle = atan2f(dz, dx) + 6 * random2(3, 0, key);
             float buttress =
                 .78f + .38f * fabsf(sinf(3 * angle + .8f * d)) + .10f * fabsf(sinf(5 * angle));
-            float summit = (95 + 240 * random2(4, 0, key)) * w->relief;
+            float summit = (125 + 330 * random2(4, 0, key)) * w->relief;
             high = fmaxf(high, summit * (1 - d * buttress));
         }
     float broad = noise2(x / 300, z / 300, seed + 35), detail = noise2(x / 37, z / 37, seed + 85);
-    return w->water - 26 + 67 * broad + 9 * detail + high +
+    float uplift = 0;
+    if (w->profile == ALPINE && (w->trail.dx || w->trail.dz)) {
+        Place fork = w->route.point[w->route.count - 1];
+        uplift = alpine_pass_height(w, (x - fork.x) * w->trail.dx + (z - fork.z) * w->trail.dz);
+    }
+    return uplift + w->water - 26 + 67 * broad + 9 * detail + high +
            smooth(12, 125, high) *
                (37 * (detail - .5f) + 12 * (noise2(x / 11, z / 11, seed + 311) - .5f));
 }
 float raw_height(const World *w, double x, double z) {
+    if (w->profile > SURVEYED)
+        return realm_ground(w, x, z);
     double distance = fmax(fabs(x), fabs(z));
     float edge = w->survey ? w->survey->cell * (w->survey->side / 2) : 960.f;
     float inner = edge - (w->survey ? fminf(256, edge * .15f) : 300);
@@ -115,6 +136,15 @@ static float station_height(const World *w, int64_t coarse) {
     /* An anchor beyond the sampled horizon cannot lower this cap. This keeps
        the grade bound valid when a low valley leaves the sampling window. */
     float height = fminf(w->trail.start_y, w->water + 3) + PROFILE_REACH * 28;
+    if (w->profile == ALPINE) {
+        double station = (double)coarse * PROFILE_STRIDE * TRAIL_STEP;
+        double reach = PROFILE_REACH * PROFILE_STRIDE * TRAIL_STEP;
+        /* Even the lowest raw ground is above water + uplift - 52. This
+           lower bound on both window edges keeps adjacent grades continuous. */
+        float low =
+            fminf(alpine_pass_height(w, station - reach), alpine_pass_height(w, station + reach));
+        height += fmaxf(0, low - 55);
+    }
     for (int j = -PROFILE_REACH; j <= PROFILE_REACH; j++) {
         int64_t k = coarse + j;
         if (k < 0)
@@ -185,6 +215,8 @@ Place trail_knot(const World *w, int64_t i) {
 }
 float height_global(const World *w, double x, double z) {
     float native = raw_height(w, x, z);
+    if (w->ascent.count)
+        native = ascent_ground(w, x, z, native);
     if (!w->trail.dx && !w->trail.dz)
         return native; /* Planning the opening hike. */
     Place end = finish(w);

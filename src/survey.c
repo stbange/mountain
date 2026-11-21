@@ -77,6 +77,8 @@ bool survey_lake(const Survey *s, float x, float z) {
 }
 
 float water_global(const World *w, double ax, double az) {
+    if (w->profile == LUNAR || w->profile == PRISM)
+        return -10000;
     if (!w->survey)
         return w->water;
     float edge = w->survey->cell * (w->survey->side / 2);

@@ -24,68 +24,67 @@ EM_JS(void, restore_browser_target, (void), {
     X(void, ShaderSource, (GLuint, GLsizei, const char *const *, const GLint *))                   \
     X(void, CompileShader, (GLuint))                                                               \
     X(void, GetShaderiv, (GLuint, GLenum, GLint *))                                                \
-    X(void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei *, char *)) X(                             \
-        GLuint, CreateProgram, (void)) X(void, AttachShader,                                       \
-                                         (GLuint, GLuint)) X(void, BindAttribLocation,             \
-                                                             (GLuint, GLuint, const char *))       \
+    X(void, GetShaderInfoLog, (GLuint, GLsizei, GLsizei *, char *))                                \
+    X(GLuint, CreateProgram, (void))                                                               \
+    X(void, AttachShader, (GLuint, GLuint)) X(void, BindAttribLocation,                            \
+                                              (GLuint, GLuint, const char *))                      \
         X(void, LinkProgram, (GLuint)) X(void, GetProgramiv, (GLuint, GLenum, GLint *)) X(         \
-            void, GetProgramInfoLog, (GLuint, GLsizei, GLsizei *, char *))                         \
-            X(void, UseProgram, (GLuint)) X(void, DeleteShader, (GLuint)) X(                       \
-                void, DeleteProgram,                                                               \
-                (GLuint)) X(GLint, GetUniformLocation, (GLuint, const char *))                     \
-                X(void, UniformMatrix4fv, (GLint, GLsizei, GLboolean, const GLfloat *))            \
-                    X(void, Uniform1i, (GLint, GLint)) X(void, Uniform1f, (GLint, GLfloat)) X(     \
+            void, GetProgramInfoLog,                                                               \
+            (GLuint, GLsizei, GLsizei *,                                                           \
+             char *)) X(void, UseProgram, (GLuint)) X(void, DeleteShader,                          \
+                                                      (GLuint)) X(void, DeleteProgram, (GLuint))   \
+            X(GLint, GetUniformLocation, (GLuint, const char *)) X(                                \
+                void,                                                                              \
+                UniformMatrix4fv,                                                                  \
+                (GLint, GLsizei, GLboolean, const GLfloat *)) X(void, Uniform1i, (GLint, GLint))   \
+                X(void, Uniform1f, (GLint, GLfloat)) X(                                            \
+                    void,                                                                          \
+                    Uniform3f,                                                                     \
+                    (GLint, GLfloat, GLfloat,                                                      \
+                     GLfloat)) X(void, Uniform4f, (GLint, GLfloat, GLfloat, GLfloat, GLfloat))     \
+                    X(void, GenBuffers, (GLsizei, GLuint *)) X(                                    \
                         void,                                                                      \
-                        Uniform3f,                                                                 \
-                        (GLint, GLfloat, GLfloat,                                                  \
-                         GLfloat)) X(void, Uniform4f, (GLint, GLfloat, GLfloat, GLfloat, GLfloat)) \
-                        X(void, GenBuffers, (GLsizei, GLuint *)) X(                                \
+                        DeleteBuffers,                                                             \
+                        (GLsizei, const GLuint *)) X(void, BindBuffer, (GLenum, GLuint))           \
+                        X(void, BufferData, (GLenum, ptrdiff_t, const void *, GLenum)) X(          \
                             void,                                                                  \
-                            DeleteBuffers,                                                         \
-                            (GLsizei, const GLuint *)) X(void, BindBuffer, (GLenum, GLuint))       \
-                            X(void, BufferData, (GLenum, ptrdiff_t, const void *, GLenum)) X(      \
+                            VertexAttribPointer,                                                   \
+                            (GLuint, GLint, GLenum, GLboolean, GLsizei,                            \
+                             const void *)) X(void, EnableVertexAttribArray, (GLuint))             \
+                            X(void, DrawArrays, (GLenum, GLint, GLsizei)) X(                       \
                                 void,                                                              \
-                                VertexAttribPointer,                                               \
-                                (GLuint, GLint, GLenum, GLboolean, GLsizei,                        \
-                                 const void *)) X(void, EnableVertexAttribArray, (GLuint))         \
-                                X(void, DrawArrays, (GLenum, GLint, GLsizei)) X(                   \
+                                GenTextures,                                                       \
+                                (GLsizei, GLuint *)) X(void, BindTexture, (GLenum, GLuint))        \
+                                X(void, TexParameteri, (GLenum, GLenum, GLint)) X(                 \
                                     void,                                                          \
-                                    GenTextures,                                                   \
-                                    (GLsizei, GLuint *)) X(void, BindTexture, (GLenum, GLuint))    \
-                                    X(void, TexParameteri, (GLenum, GLenum, GLint)) X(             \
+                                    TexImage2D,                                                    \
+                                    (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum,        \
+                                     GLenum,                                                       \
+                                     const void                                                    \
+                                         *)) X(void, DeleteTextures, (GLsizei, const GLuint *))    \
+                                    X(void, Viewport, (GLint, GLint, GLsizei, GLsizei)) X(         \
                                         void,                                                      \
-                                        TexImage2D,                                                \
-                                        (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum,    \
-                                         GLenum,                                                   \
-                                         const void                                                \
-                                             *)) X(void, DeleteTextures,                           \
-                                                   (GLsizei, const GLuint *))                      \
-                                        X(void, Viewport, (GLint, GLint, GLsizei, GLsizei)) X(     \
+                                        Scissor,                                                   \
+                                        (GLint, GLint, GLsizei,                                    \
+                                         GLsizei)) X(void, Enable, (GLenum))                       \
+                                        X(void, Disable, (GLenum)) X(void, Clear, (GLbitfield)) X( \
                                             void,                                                  \
-                                            Scissor,                                               \
-                                            (GLint, GLint, GLsizei,                                \
-                                             GLsizei)) X(void, Enable,                             \
-                                                         (GLenum)) X(void, Disable, (GLenum))      \
-                                            X(void, Clear, (GLbitfield)) X(                        \
-                                                void,                                              \
-                                                ReadPixels,                                        \
-                                                (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum,   \
-                                                 void *)) X(void, ActiveTexture, (GLenum))         \
-                                                X(void, GetIntegerv, (GLenum, GLint *)) X(         \
+                                            ReadPixels,                                            \
+                                            (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum,       \
+                                             void *)) X(void, ActiveTexture, (GLenum))             \
+                                            X(void, GetIntegerv,                                   \
+                                              (GLenum,                                             \
+                                               GLint *)) X(void, GenFramebuffers,                  \
+                                                           (GLsizei, GLuint *))                    \
+                                                X(void, BindFramebuffer, (GLenum, GLuint)) X(      \
                                                     void,                                          \
-                                                    GenFramebuffers,                               \
-                                                    (GLsizei, GLuint *))                           \
-                                                    X(void, BindFramebuffer, (GLenum, GLuint)) X(  \
-                                                        void,                                      \
-                                                        FramebufferTexture2D,                      \
-                                                        (GLenum, GLenum, GLenum, GLuint,           \
-                                                         GLint)) X(void, DeleteFramebuffers,       \
-                                                                   (GLsizei, const GLuint *))      \
-                                                        X(void, GenRenderbuffers,                  \
-                                                          (                                        \
-                                                              GLsizei,                             \
-                                                              GLuint *)) X(void, BindRenderbuffer, \
-                                                                           (GLenum, GLuint))       \
+                                                    FramebufferTexture2D,                          \
+                                                    (GLenum, GLenum, GLenum, GLuint,               \
+                                                     GLint)) X(void, DeleteFramebuffers,           \
+                                                               (GLsizei, const GLuint *))          \
+                                                    X(void, GenRenderbuffers, (GLsizei, GLuint *)) \
+                                                        X(void, BindRenderbuffer,                  \
+                                                          (GLenum, GLuint))                        \
                                                             X(void, RenderbufferStorage,           \
                                                               (GLenum, GLenum, GLsizei, GLsizei))  \
                                                                 X(void, FramebufferRenderbuffer,   \
@@ -104,7 +103,8 @@ typedef struct {
 } Buffer;
 struct Display {
     GLuint program, atlas, font, trail, canopy, fb, frame, depth, lake_fb, lake_tex, lake_depth;
-    GLint reflect, water, viewport, season_tint, trail_center, pattern;
+    GLint reflect, water, viewport, season_tint, trail_center, pattern, profile, liquid, soil;
+    int destination;
     int trail_x, trail_z;
     int64_t ox, oz;
     unsigned char tread[TRAIL_TEXTURE_SIZE * TRAIL_TEXTURE_SIZE];
@@ -258,6 +258,9 @@ Display *display_open(const char *root) {
     LOC(water, "water");
     LOC(trail_center, "trail_center");
     LOC(pattern, "pattern");
+    LOC(profile, "profile");
+    LOC(liquid, "liquid");
+    LOC(soil, "soil");
     LOC(season_tint, "season");
     LOC(viewport, "viewport");
     qUniform1i(qGetUniformLocation(d->program, "u_atlas"), 0);
@@ -297,7 +300,13 @@ void display_close(Display *d) {
 }
 static void scenery(Display *d, Script *s, const Game *g) {
     const Cabin *c = &g->cabin, *old = &d->cached;
-    if (!d->valid || d->seed != g->world.seed || d->season != g->season) {
+    if (d->destination != g->world.destination) {
+        d->valid = false;
+        d->destination = g->world.destination;
+        d->lake_time = -100;
+    }
+    if (g->world.profile <= SURVEYED &&
+        (!d->valid || d->seed != g->world.seed || d->season != g->season)) {
         forest_prepare(&s->forest, g);
         qActiveTexture(GL_TEXTURE3);
         qBindTexture(GL_TEXTURE_2D, d->canopy);
@@ -468,6 +477,7 @@ static void lake_reflection(Display *d, const Game *g, Viewport vp, Mat projecti
     qBindTexture(GL_TEXTURE_2D, d->lake_tex);
     qActiveTexture(GL_TEXTURE0);
 }
+static void headset_note(Display *d, const Game *g);
 void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *proj,
                   const Mat *head) {
     if (vp.w < 1 || vp.h < 1)
@@ -492,12 +502,35 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
     float grey = g->weather == 2 ? .67f : (g->weather == 3 ? .45f : (g->weather == 1 ? .22f : 0));
     hor = blend(hor, shade(rgb(0xacb7b6), .36f + .64f * day), grey);
     zen = blend(zen, shade(rgb(0x86979c), .35f + .65f * day), grey);
+    const Destination *destination = g->world.place;
+    Profile profile = g->world.profile;
+    if (profile > SURVEYED) {
+        Color sky = destination->colours[4];
+        zen = blend(shade(sky, .19f), sky, .80f * day);
+        hor = blend(shade(sky, .31f),
+                    blend(sky, profile >= PRISM ? destination->colours[3] : rgb(0xffe5c1), .53f),
+                    day);
+        if (profile == LUNAR) {
+            zen = rgb(0x03050d);
+            hor = rgb(0x101322);
+            grey = 0;
+        } else {
+            hor = blend(hor, shade(sky, .80f), grey * .4f);
+            zen = blend(zen, hor, grey * .45f);
+        }
+    }
+    Color liquid = destination ? destination->colours[5] : rgb(0x36757b);
+    Color soil = destination ? destination->colours[0] : rgb(0xa79876);
+    qUniform1i(d->profile, profile);
+    qUniform3f(d->liquid, liquid.r, liquid.g, liquid.b);
+    qUniform3f(d->soil, soil.r, soil.g, soil.b);
     qUniform3f(d->horizon, hor.r, hor.g, hor.b);
     qUniform3f(d->zenith, zen.r, zen.g, zen.b);
-    qUniform4f(d->air, g->hour, day, warm, (float)g->weather);
+    qUniform4f(d->air, g->hour, day, warm, profile == LUNAR ? 0 : (float)g->weather);
     qUniform1f(d->clock, g->elapsed);
     qUniform1f(d->season_tint, (float)g->season);
-    lake_reflection(d, g, vp, p, view);
+    if (!d->lake_tex || (profile != LUNAR && profile != PRISM))
+        lake_reflection(d, g, vp, p, view);
     camera(d, p, view);
     outdoor(d, vp);
     if (g->cabin.inside) {
@@ -512,6 +545,8 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
         camera(d, p, view);
     }
     draw(d->house);
+    if (head)
+        headset_note(d, g);
 }
 static Vec pixel(float x, float y, int w, int h) { return (Vec){x * 2 / w - 1, 1 - y * 2 / h, 0}; }
 static void label(Mesh *m, const char *text, int x, int y, int w, int h, Color col) {
@@ -522,6 +557,57 @@ static void label(Mesh *m, const char *text, int x, int y, int w, int h, Color c
                  pixel(x, y, w, h), u, v, u + 1 / 16.f, v + 1 / 8.f, col, 1);
     }
 }
+static void note_lines(Mesh *m, const char *note, int left, int start, int width, int w, int h,
+                       Color ink, Color cream) {
+    for (int row = 0; *note && row < 5 && width > 4; row++) {
+        int n = (int)strlen(note);
+        if (n > width) {
+            n = width;
+            while (n > 1 && note[n] != ' ')
+                n--;
+            if (n == 1)
+                n = width;
+        }
+        char line[108];
+        memcpy(line, note, n);
+        line[n] = 0;
+        quad(m, pixel(left, start + row * 10, w, h),
+             pixel(left + 12 + n * 6, start + row * 10, w, h),
+             pixel(left + 12 + n * 6, start + row * 10 + 10, w, h),
+             pixel(left, start + row * 10 + 10, w, h), ink, 0);
+        label(m, line, left + 6, start + row * 10 + 1, w, h, cream);
+        note += n;
+        while (*note == ' ')
+            note++;
+    }
+}
+static void finish_hud(Display *d, Mesh *m) {
+    upload(&d->hud, m, GL_DYNAMIC_DRAW);
+    qDisable(GL_DEPTH_TEST);
+    qBindTexture(GL_TEXTURE_2D, d->font);
+    qUniform1i(d->layer, 2);
+    draw(d->hud);
+}
+static void headset_note(Display *d, const Game *g) {
+    Interaction nearby = game_near(g);
+    const char *note = NULL;
+    if (g->fall_time > 0 || g->exposed)
+        note = "Exposed edge - watch your footing";
+    else if (g->warning_timer > 0)
+        note = "Back on safe footing";
+    else if (g->note_timer > 0)
+        note = field_hint(g);
+    else if (nearby == NEAR_READ)
+        note = "Select to read the field sign";
+    else if (nearby == NEAR_TREASURE)
+        note = "Select to discover the treasure";
+    if (!note || !*note)
+        return;
+    Mesh *m = &d->scratch;
+    mesh_clear(m);
+    note_lines(m, note, 126, 279, 38, 500, 400, rgb(0x233a31), rgb(0xf0edda));
+    finish_hud(d, m);
+}
 static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool help) {
     Mesh *m = &d->scratch;
     mesh_clear(m);
@@ -530,21 +616,24 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
     snprintf(title, sizeof title, "%s",
              g->cabin.inside ? room_name(s, g->cabin.room) : trail_name(g));
     snprintf(line, sizeof line, "%02d:%02d   %s   %s", time / 60, time % 60,
-             g->rules->seasons[g->season],
-             g->season == 3 && g->weather == 2 ? g->rules->winter_precipitation
-                                               : g->rules->skies[g->weather]);
+             g->rules->seasons[g->season], weather_label(g, g->weather));
     const char *actions[] = {"WASD HIKE  /  P PHOTO  /  H CABIN  /  F1 GUIDE",
                              "E  OPEN DOOR",
                              "E  STEP INSIDE",
                              "E  STEP OUTSIDE",
                              "E  NEXT ROOM",
-                             "E  PREVIOUS ROOM"};
+                             "E  PREVIOUS ROOM",
+                             "E  READ FIELD SIGN",
+                             "E  DISCOVER TREASURE"};
     Color ink = rgb(0x233a31), cream = rgb(0xf0edda);
     quad(m, pixel(6, 7, w, h), pixel(200, 7, w, h), pixel(200, 32, w, h), pixel(6, 32, w, h), ink,
          0);
     label(m, title, 12, 10, w, h, cream);
     label(m, line, 12, 21, w, h, cream);
-    const char *a = actions[game_near(g)];
+    const char *a = g->fall_time > 0       ? "SLIPPING"
+                    : g->warning_timer > 0 ? "BACK ON SAFE FOOTING"
+                    : g->exposed           ? "EXPOSED EDGE - WATCH YOUR FOOTING"
+                                           : actions[game_near(g)];
     quad(m, pixel(6, h - 20, w, h), pixel(18 + strlen(a) * 6, h - 20, w, h),
          pixel(18 + strlen(a) * 6, h - 6, w, h), pixel(6, h - 6, w, h), ink, 0);
     label(m, a, 12, h - 17, w, h, cream);
@@ -553,23 +642,40 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
                                "WASD or arrows: hike / turn",
                                "Drag or left click: look",
                                "H: summon / dismiss cabin",
-                               "E: open / use nearest door",
+                               "E: use a door or field sign",
                                "R: return to hearth room",
                                "T: time   Y: season   U: weather",
                                "I: cycle seasons   O: weather changes",
                                "N: new trail   B: Taggart Lake",
+                               "[ / ]: previous / next destination",
                                "M: sound   P: photo",
                                "F1: close guide   Esc: release mouse"};
-        quad(m, pixel(6, 36, w, h), pixel(244, 36, w, h), pixel(250, 158, w, h),
-             pixel(6, 158, w, h), ink, 0);
+        quad(m, pixel(6, 36, w, h), pixel(244, 36, w, h), pixel(250, 174, w, h),
+             pixel(6, 174, w, h), ink, 0);
         for (int i = 0; i < (int)(sizeof lines / sizeof *lines); i++)
             label(m, lines[i], 12, 43 + i * 10, w, h, cream);
+        int found = 0;
+        for (int i = 0; i < g->rules->place_count; i++)
+            if (((g->notes >> (2 * i)) & 3u) == 3) {
+                if (w >= 455)
+                    note_lines(m, g->rules->places[i].signs[2], 254, 48 + found * 10, 45, w, h, ink,
+                               cream);
+                found++;
+            }
+        if (g->rules->place_count) {
+            char total[64];
+            snprintf(total, sizeof total, "Treasures found  %d / %d", found, g->rules->place_count);
+            note_lines(m, total, w >= 455 ? 254 : 6, w >= 455 ? 36 : 161, 40, w, h, ink, cream);
+        }
     }
-    upload(&d->hud, m, GL_DYNAMIC_DRAW);
-    qDisable(GL_DEPTH_TEST);
-    qBindTexture(GL_TEXTURE_2D, d->font);
-    qUniform1i(d->layer, 2);
-    draw(d->hud);
+    if ((help || g->note_timer > 0) && g->world.place) {
+        const char *note = field_hint(g);
+        int start = help ? 177 : 36, width = (w - 24) / 6;
+        if (width > 105)
+            width = 105;
+        note_lines(m, note, 6, start, width, w, h, ink, cream);
+    }
+    finish_hud(d, m);
 }
 static bool target(Display *d, int w, int h) {
     if (!d->fb) {

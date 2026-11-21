@@ -32,6 +32,23 @@ debug.sethook(trace,"l")
 local world=load("world")
 assert(#world.seasons==4 and #world.skies==4 and #world.trails==8)
 assert(#world.tree_shapes==4 and world.tree_shapes[3].deciduous and world.tree_shapes[4].form=="forked")
+local places=load("destinations")
+assert(#places==12)
+load("landmarks")
+record(build_landmark)
+for id,place in ipairs(places) do
+  assert(#place.colours==6 and #place.stops==2 and #place.discovery==7)
+  for kind=0,6 do
+    for variant=0,2 do
+      local strokes=0
+      build_landmark(id-1,kind,variant,place.colours[4],function(x,y,z,X,Y,Z,r,R,sides,flat,col,material)
+        assert((X-x)^2+(Y-y)^2+(Z-z)^2>0 and r>=0 and R>=0 and sides>=3 and flat>0 and math.type(col)=="integer")
+        strokes=strokes+1
+      end)
+      assert(strokes>0)
+    end
+  end
+end
 load("wildlife")
 record(build_animal)
 for k=1,#world.fauna_names do

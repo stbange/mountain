@@ -8,6 +8,24 @@ typedef struct {
 } Sample;
 static Color terrain_colour(const Game *g, Sample v, float ny, float light) {
     float y = v.p.y;
+    if (g->world.profile > SURVEYED) {
+        const Destination *d = g->world.place;
+        float layer = v.patch;
+        if (d->profile == MESA || d->profile == BASALT || d->profile == PRISM)
+            layer = clampf(.45f + .27f * sinf(y * .52f) + .39f * v.patch, 0, 1);
+        Color soil = blend(d->colours[0], d->colours[1], layer * .78f);
+        Color c = blend(soil, d->colours[2], clampf((1 - ny) * 1.35f, 0, 1));
+        if (d->profile == DUNES && y < 4)
+            c = blend(c, rgb(0x729474), 1 - smooth(1, 4, y));
+        if (d->profile == KARST) {
+            c = blend(c, d->colours[1], smooth(18, 115, y) * .55f);
+            if (g->season == 2)
+                c = blend(c, rgb(0xa58b5c), .16f);
+        }
+        if (d->profile == BASALT && g->season == 3)
+            c = blend(c, rgb(0xc8cfd1), smooth(35, 85, y) * .72f);
+        return shade(c, light);
+    }
     Color meadow = g->rules->meadow[g->season], forest = g->rules->forest[g->season];
     float cover = smooth(.24f, .8f, v.patch);
     Color col = blend(meadow, forest, cover * .76f);
@@ -16,6 +34,7 @@ static Color terrain_colour(const Game *g, Sample v, float ny, float light) {
     col = blend(col, rock, exposed);
     float snowline = (g->season == 3 ? 10.f : (g->season == 0 ? 91.f : 119.f));
     float snow = smooth(snowline, snowline + 19, y + (ny - .6f) * 77 + (v.patch - .5f) * 44);
+    snow *= .15f + .85f * smooth(.24f, .79f, ny + (v.patch - .5f) * .22f);
     Color ice = blend(rgb(0x92acc5), rgb(0xfff5e2), smooth(.63f, 1.05f, light));
     col = blend(col, ice, snow);
     if (y < water_at(&g->world, v.p.x, v.p.z) + 2.8f)
@@ -191,7 +210,8 @@ static void flower_islands(Mesh *m, const Game *g, float cx, float cz) {
         }
 }
 bool insects_active(const Game *g) {
-    return g->season != 3 && g->weather < 2 && g->hour > 7 && g->hour < 18.75f;
+    return g->world.profile <= SURVEYED && g->season != 3 && g->weather < 2 && g->hour > 7 &&
+           g->hour < 18.75f;
 }
 static void pollinators(Mesh *m, const Game *g) {
     if (!insects_active(g))
@@ -276,7 +296,7 @@ static void meadow(Mesh *m, const Game *g, float cx, float cz) {
                 sprite(m, x, h - .10f, z, tall * 1.40f, tall, a + PI * .5f, tile, tint);
         }
 }
-static void blaze(Mesh *m, const Game *g, Place a, Place b, float t) {
+static void blaze(Mesh *m, const Game *g, Place a, Place b, float t, bool summit) {
     float dx = b.x - a.x, dz = b.z - a.z, len = hypotf(dx, dz);
     float x = mixf(a.x, b.x, t) - 2.65f * dz / len, z = mixf(a.z, b.z, t) + 2.65f * dx / len;
     float y = ground(g, x, z);
@@ -284,9 +304,11 @@ static void blaze(Mesh *m, const Game *g, Place a, Place b, float t) {
         trail_distance(&g->world, x, z) <= 1.8f)
         return;
     Pose p = {{x, y, z}, atan2f(dx, -dz)};
-    box_material(m, p, (Vec){0, .58f, 0}, (Vec){.13f, 1.20f, .15f}, rgb(0x88714e), 3);
-    box(m, p, (Vec){0, .99f, 0}, (Vec){.14f, .11f, .16f}, rgb(0xf6e4b9));
-    box(m, p, (Vec){0, .89f, 0}, (Vec){.14f, .09f, .16f}, rgb(0xa95032));
+    float lift = summit ? .55f : 0;
+    box_material(m, p, (Vec){0, .58f + lift * .5f, 0}, (Vec){.13f, 1.20f + lift, .15f},
+                 rgb(0x88714e), 3);
+    box(m, p, (Vec){0, .99f + lift, 0}, (Vec){.14f, .11f, .16f}, rgb(0xf6e4b9));
+    box(m, p, (Vec){0, .89f + lift, 0}, (Vec){.14f, .09f, .16f}, rgb(summit ? 0x355d87 : 0xa95032));
 }
 static void cairn(Mesh *m, const Game *g, Place a, Place b, uint32_t seed) {
     float dx = b.x - a.x, dz = b.z - a.z, len = hypotf(dx, dz);
@@ -310,13 +332,27 @@ static void waymarks(Mesh *m, const Game *g, float cx, float cz) {
             b.z -= w->oz;
             float len = hypotf(b.x - a.x, b.z - a.z);
             while (next <= walked + len) {
-                blaze(m, g, a, b, (next - walked) / len);
+                blaze(m, g, a, b, (next - walked) / len, false);
                 next += 36;
             }
             walked += len;
             if (i == r->overlook || i == r->count - 1)
                 cairn(m, g, a, b, w->seed);
         }
+    }
+    const Ascent *as = &w->ascent;
+    for (int i = 1; i < as->count; i++) {
+        Place a = as->point[i - 1], b = as->point[i];
+        a.x -= w->ox;
+        a.z -= w->oz;
+        b.x -= w->ox;
+        b.z -= w->oz;
+        if (hypotf(b.x - cx, b.z - cz) > 300)
+            continue;
+        blaze(m, g, a, b, .25f, true);
+        blaze(m, g, a, b, .75f, true);
+        if (i % 2 || i == as->count - 1)
+            cairn(m, g, a, b, w->seed + i);
     }
     int64_t center = (int64_t)floor(trail_station(w, cx, cz) / TRAIL_STEP);
     int64_t first = center > 12 ? center - 12 : 0;
@@ -325,7 +361,7 @@ static void waymarks(Mesh *m, const Game *g, float cx, float cz) {
         if (hypotf(a.x - cx, a.z - cz) > 265)
             continue;
         if (i % 2 == 0)
-            blaze(m, g, a, b, .4f);
+            blaze(m, g, a, b, .4f, alpine_pass_height(w, (double)i * TRAIL_STEP) > 230);
         if ((i + 1) % 16 == 0)
             cairn(m, g, a, b, cell_hash(i, 5, w->seed));
     }
@@ -359,12 +395,15 @@ void landscape(Mesh *m, Forest *forest, const Game *g, float cx, float cz) {
                     if (survey_lake(s, x + d * .5f, z + d * .5f))
                         water_patch(m, y, x - w->ox, z - w->oz, x + d - w->ox, z + d - w->oz);
                 }
-    } else
+    } else if (w->profile != LUNAR && w->profile != PRISM)
         water_patch(m, y, x0, z0, x1, z1);
-    forest_prepare(forest, g);
-    trees(m, forest, g, cx, cz);
-    meadow(m, g, cx, cz);
-    flower_islands(m, g, cx, cz);
+    if (w->profile <= SURVEYED) {
+        forest_prepare(forest, g);
+        trees(m, forest, g, cx, cz);
+        meadow(m, g, cx, cz);
+        flower_islands(m, g, cx, cz);
+    } else
+        realm_scenery(m, g, cx, cz);
     waymarks(m, g, cx, cz);
 }
 static void foundations(Mesh *m, const Forest *forest, const Game *g, Pose pose) {
@@ -422,6 +461,9 @@ void cabin_mesh(Mesh *m, Script *s, const Game *g) {
 }
 void wildlife(Mesh *m, Script *script, const Game *g) {
     mesh_clear(m);
+    field_scenery(m, g);
+    if (g->world.profile > SURVEYED)
+        realm_life(m, g);
     pollinators(m, g);
     uint32_t s = g->world.seed;
     Animal animals[LOCAL_ANIMALS];
@@ -434,9 +476,12 @@ void wildlife(Mesh *m, Script *script, const Game *g) {
             sprite(m, a->pos.x, a->pos.y, a->pos.z, 2.1f, 1.68f,
                    atan2f(g->z - a->pos.z, g->x - a->pos.x) - PI * .5f, 7, rgb(0xf5e5cd));
     }
-    if (g->weather == 2) {
+    if (g->weather == 2 && g->world.profile != LUNAR) {
         Vec p = eye(g);
-        Color rain = g->season == 3 ? rgb(0xe3e7e5) : rgb(0xb2c5c0);
+        Color rain = g->world.profile == DUNES || g->world.profile == CINDER
+                         ? g->world.place->colours[3]
+                     : g->season == 3 ? rgb(0xe3e7e5)
+                                      : rgb(0xb2c5c0);
         for (int i = 0; i < 110; i++) {
             float x = p.x + (random2(i, 1, s) - .5f) * 23, z = p.z + (random2(i, 2, s) - .5f) * 23;
             float speed = g->season == 3 ? 1.4f : 8.5f;

@@ -1,0 +1,45 @@
+-- The slot is the stable field-journal ID. Elevations are expressed in game metres above the local datum.
+-- Colours are ground, shade, rock, landmark accent, high sky and liquid.
+local function place(profile, name, region, seed, datum, colours, stops, discovery)
+  return {profile=profile, name=name, region=region, seed=seed, datum=datum,
+          colours=colours, stops=stops, discovery=discovery}
+end
+-- A discovery specifies the field skill, first landmark, second landmark, treasure and three field notes.
+return {
+  place("alpine","Larkspur Ridge","Alpine backcountry",4812,1640,
+    {0xa8ad69,0x567253,0x81868a,0xefc569,0x689cb3,0x377a80},{"Lakeside View","Ridge Lookout"},
+    {"align","Split cairn","Pass needles","The Sunwheel","Look for three pale stones beside the ridge fork.","The split stones point uphill. Follow the blue and white blazes to the notched pass.","Sight between the brass needles toward the final snow crest."}),
+  place("survey","Taggart Lake","Wyoming",1872,0,
+    {0xa8ad69,0x567253,0x81868a,0xefbb86,0x689cb3,0x377a80},{"Lakeside View","Ridge Lookout"},
+    {"dusk","Glacial erratic","Amber dial","The Teton Alpenglass","Look for amber flakes beside the first part of the trail.","Flakes lead to the lakeside dial. Its west face catches the last sun.","In the evening, read the dial and follow its shadow marks to the lookout."}),
+  place("coast","Sarakiniko","Milos, Greece",23001,0,
+    {0xefead9,0xc9c4ab,0xe2d7c6,0xf3b285,0x5aabd0,0x27acb9},{"Shell Cove","Chalk Headland"},
+    {"align","Spiral shells","Twin shell fans","The Nautilus Orrery","A spiral of peach shells lies beside the chalk path.","Each shell opens toward the next headland. Find the twin fans above the surf.","Look through the fans in the direction their tips point."}),
+  place("dunes","Erg Chebbi","Sahara, Morocco",23002,730,
+    {0xe4ae62,0xc17c41,0xd19450,0x7db797,0x79b0be,0x428c7e},{"Date Palm Spring","Dune Saddle"},
+    {"dusk","Reed bundle","Desert sundial","The Caravans' Star","Reeds tied beside the track have salt on just one side.","Follow the leaning reeds past the palms to a low stone dial.","Read the long evening shadow. The star rests on dry ground beyond the spring."}),
+  place("basalt","Reynisfjara","South Iceland",23003,0,
+    {0x585b60,0x353e43,0x626d72,0x80d4d2,0x7c9eaf,0x407886},{"Column Beach","Sea Stack View"},
+    {"echo","Basalt chimes","Organ pipes","The Basalt Bell","Three loose basalt columns stand apart on the black sand.","The columns rise in order toward a cluster of hollow pipes.","Sound the three pipes from lowest to highest. Their last note points inland."}),
+  place("mesa","Canyonlands","Utah, USA",23004,1250,
+    {0xc87850,0x914c37,0xd99465,0xa5daca,0x689fbb,0x597c68},{"Sandstone Bench","Window Mesa"},
+    {"align","Split sandstone","Sight stones","The Turquoise Window","Find the three stones with an exposed turquoise seam.","Read the seams toward the next shelf. A pair of fins frames the horizon.","Look between the fins along the line of turquoise."}),
+  place("karst","Li River","Guilin, China",23005,135,
+    {0x86a26a,0x4b7658,0x95a293,0xe7cb83,0x82afb6,0x518c7b},{"Bamboo Landing","Tower Bend"},
+    {"echo","Bamboo flutes","Reed organ","The River Lantern","Hollow bamboo stands tied in a fan above the riverbank.","Follow the cut stems to three reed pipes by the bend.","Sound the pipes from lowest to highest to wake the lantern."}),
+  place("lunar","Mare Imbrium","Earth's Moon",24001,0,
+    {0x95969a,0x62656c,0xb7b6b6,0x95c8ff,0x090c17,0x232530},{"Ejecta Fan","Crater Rim"},
+    {"align","Survey prisms","Earthrise sights","The Earthrise Lens","Look for silver reflectors in the grey ejecta.","Track the reflected light to two prongs at the rim.","Sight along the prongs. The blue lens waits beyond them."}),
+  place("prism","Prism Choir","Iridescent highlands",24002,210,
+    {0x776898,0x4a426c,0xaa92b9,0x8ef0ed,0x5b478e,0x69549a},{"Facet Garden","Chorus Ridge"},
+    {"echo","Glass reeds","Singing facets","The Chord of Glass","Listen to the glass reeds where the path first bends.","Their tips rise toward three taller facets on the ridge.","Sound the facets in rising order. The chord lights the last crystal."}),
+  place("fungal","Lantern Mycelium","Sporelight Hollow",24003,60,
+    {0x596c73,0x384750,0x776783,0x93f0b6,0x474865,0x51847f},{"Spore Pool","Lantern Grove"},
+    {"dusk","Spore cups","Lantern gills","The First Lantern","A pale ring of spore cups borders the path.","The luminous edges lean toward a stand of lantern gills.","At dusk the gills brighten. Read the lit edge to find the oldest fruiting body."}),
+  place("reefs","The Hanging Sea","Pelagic sky",24004,420,
+    {0x91aa93,0x588b89,0xb2ad9b,0xf0aeae,0x5596a9,0x409faa},{"Ribbon Falls","Hanging Reef"},
+    {"align","Tidal vanes","Reef sights","The Pearl of Two Tides","Look for coral vanes beneath the first floating reef.","Their tips turn toward two taller sights by the falls.","Look through both sights to find where the tides cross."}),
+  place("cinder","Emberglass Caldera","Cinder planet",24005,320,
+    {0x66515d,0x37313c,0x806876,0xffb24c,0x8e575f,0xf07632},{"Obsidian Fan","Caldera Lip"},
+    {"echo","Obsidian splinters","Cinder bells","The Ember Heart","Amber light leaks between three splinters near the trail.","Each splinter leans toward the bells at the caldera lip.","Sound the bells from lowest to highest to open the still-warm geode."}),
+}

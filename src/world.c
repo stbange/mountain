@@ -40,12 +40,27 @@ Color blend(Color a, Color b, float t) {
 }
 Color shade(Color c, float l) { return (Color){c.r * l, c.g * l, c.b * l}; }
 
+int destination_for_seed(const Rules *r, uint32_t seed) {
+    for (int i = 0; i < r->place_count; i++)
+        if (r->places[i].seed == seed)
+            return i;
+    return 0;
+}
 void world_init(World *w, uint32_t seed, const Rules *r) {
+    world_destination(w, seed, r, destination_for_seed(r, seed));
+}
+void world_destination(World *w, uint32_t seed, const Rules *r, int destination) {
+    w->ascent = (Ascent){0};
+    w->destination = destination >= 0 && destination < r->place_count ? destination : 0;
+    w->place = r->place_count ? &r->places[w->destination] : NULL;
+    w->profile = w->place ? w->place->profile : ALPINE;
     w->ox = w->oz = 0;
     w->trail = (LongTrail){0};
     w->seed = seed;
     w->relief = r->relief;
-    w->survey = r->survey.data && seed == r->survey.seed ? &r->survey : NULL;
+    w->survey = r->survey.data && seed == r->survey.seed && (w->profile == SURVEYED || !w->place)
+                    ? &r->survey
+                    : NULL;
     w->water = w->survey ? 0 : r->water;
     w->phase = (random2(4, 8, seed) - .5f) * 1.6f;
     w->meadow_level = -13 + 8 * random2(0, 0, seed) + 2.5f * random2(0, 0, seed + 29) +
@@ -78,11 +93,14 @@ void world_init(World *w, uint32_t seed, const Rules *r) {
             p.rx = 205 + b * 125;
             p.rz = 224 + c * 125;
         }
-        p.h *= w->relief;
+        p.h *= w->relief * (i >= 20 ? 1.58f : 1);
         p.angle = a * 4.7f;
         w->peaks[i] = p;
     }
-    route_generate(w);
+    if (w->profile <= SURVEYED)
+        route_generate(w);
+    else
+        realm_route(w);
     Place end = w->route.point[w->route.count - 1];
     if (fabsf(end.x) >= fabsf(end.z))
         w->trail.dx = end.x < 0 ? -1 : 1;
@@ -93,6 +111,8 @@ void world_init(World *w, uint32_t seed, const Rules *r) {
     w->trail.first = -TRAIL_WINDOW - 1;
     w->trail.first_shelf = -2 * TRAIL_SHELVES;
     trail_window(w, 0, 0);
+    if (w->profile == ALPINE && !w->survey)
+        ascent_generate(w);
 }
 
 float starter_height(const World *w, float x, float z) {
@@ -138,6 +158,8 @@ float sunlight_factor(float hour) { return smooth(-.16f, .33f, sinf((hour - 6) *
 float alpenglow(float hour) { return 1 - smooth(.03f, .71f, fabsf(sinf((hour - 6) * PI / 12))); }
 
 bool world_tree(const World *w, int i, int j, Tree *tree) {
+    if (w->profile > SURVEYED)
+        return false;
     uint32_t s = w->seed;
     int64_t ix = w->ox / 7 + i, iz = w->oz / 7 + j;
     float x = (i + random2(ix, iz, s + 1)) * 7, z = (j + random2(ix, iz, s + 2)) * 7;

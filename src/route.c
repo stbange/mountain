@@ -288,6 +288,7 @@ float route_distance(const Route *r, float x, float z) {
 }
 float trail_distance(const World *w, float x, float z) {
     float best = route_distance(&w->route, (float)(w->ox + (double)x), (float)(w->oz + (double)z));
+    best = fminf(best, ascent_distance(w, w->ox + (double)x, w->oz + (double)z));
     double s = trail_station(w, x, z);
     if (s < -32)
         return best;
@@ -334,6 +335,9 @@ void route_texture(const World *w, float cx, float cz, unsigned char *pixels) {
     if (fabs(ax) < 512 && fabs(az) < 512)
         for (int i = 1; i < r->count; i++)
             paint(pixels, r->point[i - 1], r->point[i], (float)ax, (float)az);
+    if (w->ascent.count && fabs(ax) < 1600 && fabs(az) < 1600)
+        for (int i = 1; i < w->ascent.count; i++)
+            paint(pixels, w->ascent.point[i - 1], w->ascent.point[i], (float)ax, (float)az);
     int64_t k = (int64_t)floor(trail_station(w, cx, cz) / TRAIL_STEP);
     int radius = TRAIL_TEXTURE_SIZE / (2 * TRAIL_STEP) + 2;
     int64_t first = k > radius ? k - radius : 0;

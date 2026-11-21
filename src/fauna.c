@@ -93,6 +93,8 @@ static bool occupant(const Game *g, int i, int j, int member, Animal *a) {
     return true;
 }
 int fauna_near(const Game *g, Animal *out, int capacity) {
+    if (g->world.profile > SURVEYED)
+        return 0;
     int cx = (int)floorf(g->x / 48), cz = (int)floorf(g->z / 48), n = 0;
     for (int j = cz - 3; j <= cz + 3; j++)
         for (int i = cx - 3; i <= cx + 3; i++)

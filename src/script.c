@@ -137,6 +137,9 @@ static int read_rules(lua_State *L) {
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
+    lua_getfield(L, 1, "destination_file");
+    snprintf(r->destination_file, sizeof r->destination_file, "%s", luaL_optstring(L, -1, ""));
+    lua_pop(L, 1);
     lua_getfield(L, 1, "fauna_script");
     snprintf(r->fauna_script, sizeof r->fauna_script, "%s", luaL_optstring(L, -1, ""));
     lua_pop(L, 1);
@@ -144,10 +147,131 @@ static int read_rules(lua_State *L) {
         strings(L, "fauna_names", &r->fauna_names[0][0], sizeof r->fauna_names[0], FAUNA_TYPES);
     return 0;
 }
+static void string_at(lua_State *L, int table, int index, char *out, size_t size) {
+    lua_geti(L, table, index);
+    snprintf(out, size, "%s", luaL_checkstring(L, -1));
+    lua_pop(L, 1);
+}
+static int read_destinations(lua_State *L) {
+    Rules *r = lua_touserdata(L, lua_upvalueindex(1));
+    static const char *const profiles[] = {"alpine", "survey", "coast", "dunes", "basalt",
+                                           "mesa",   "karst",  "lunar", "prism", "fungal",
+                                           "reefs",  "cinder", NULL};
+    static const char *const skills[] = {"align", "dusk", "echo", NULL};
+    int n = (int)luaL_len(L, 1);
+    if (n < 1 || n > DEST_LIMIT)
+        return luaL_error(L, "invalid destination count");
+    for (int i = 0; i < n; i++) {
+        Destination *d = &r->places[i];
+        lua_geti(L, 1, i + 1);
+        int row = lua_gettop(L);
+        lua_getfield(L, row, "profile");
+        d->profile = (Profile)luaL_checkoption(L, -1, NULL, profiles);
+        lua_pop(L, 1);
+        lua_getfield(L, row, "seed");
+        d->seed = (uint32_t)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        d->datum = number(L, row, "datum", -10000, 10000);
+        lua_getfield(L, row, "name");
+        snprintf(d->name, sizeof d->name, "%s", luaL_checkstring(L, -1));
+        lua_pop(L, 1);
+        lua_getfield(L, row, "region");
+        snprintf(d->region, sizeof d->region, "%s", luaL_checkstring(L, -1));
+        lua_pop(L, 1);
+        lua_getfield(L, row, "colours");
+        for (int k = 0; k < 6; k++) {
+            lua_geti(L, -1, k + 1);
+            d->colours[k] = rgb((unsigned)luaL_checkinteger(L, -1));
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, row, "stops");
+        for (int k = 0; k < 2; k++)
+            string_at(L, -1, k + 1, d->stops[k], sizeof d->stops[k]);
+        lua_pop(L, 1);
+        lua_getfield(L, row, "discovery");
+        lua_geti(L, -1, 1);
+        d->skill = (FieldSkill)luaL_checkoption(L, -1, NULL, skills);
+        lua_pop(L, 1);
+        for (int k = 0; k < 3; k++) {
+            string_at(L, -1, k + 2, d->signs[k], sizeof d->signs[k]);
+            string_at(L, -1, k + 5, d->notes[k], sizeof d->notes[k]);
+        }
+        lua_pop(L, 2);
+    }
+    r->place_count = n;
+    return 0;
+}
 static bool failure(Script *s) {
     snprintf(s->error, sizeof s->error, "%s", lua_tostring(s->L, -1));
     lua_pop(s->L, 1);
     return false;
+}
+static int draw_limb(lua_State *L) {
+    Mesh *m = lua_touserdata(L, lua_upvalueindex(1));
+    Vec p = {luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)};
+    Vec q = {luaL_checknumber(L, 4), luaL_checknumber(L, 5), luaL_checknumber(L, 6)};
+    float a = luaL_checknumber(L, 7), b = luaL_checknumber(L, 8);
+    int sides = (int)clampf(luaL_checkinteger(L, 9), 3, 20);
+    float flat = luaL_checknumber(L, 10);
+    Color c = rgb((unsigned)luaL_checkinteger(L, 11));
+    float material = luaL_checknumber(L, 12);
+    Vec d = {q.x - p.x, q.y - p.y, q.z - p.z};
+    float len = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (len < .00001f)
+        return 0;
+    d = (Vec){d.x / len, d.y / len, d.z / len};
+    float h = hypotf(d.x, d.z);
+    Vec u = h > .001f ? (Vec){-d.z / h, 0, d.x / h} : (Vec){1, 0, 0};
+    Vec v = {d.y * u.z, d.z * u.x - d.x * u.z, -d.y * u.x};
+    Vec lower[21], upper[21];
+    for (int i = 0; i <= sides; i++) {
+        float angle = 2 * PI * (i % sides) / sides, co = cosf(angle), si = sinf(angle) * flat;
+        Vec n = {u.x * co + v.x * si, u.y * co + v.y * si, u.z * co + v.z * si};
+        lower[i] = (Vec){p.x + a * n.x, p.y + a * n.y, p.z + a * n.z};
+        upper[i] = (Vec){q.x + b * n.x, q.y + b * n.y, q.z + b * n.z};
+    }
+    for (int i = 0; i < sides; i++) {
+        Color lit = shade(c, .88f + .16f * cosf(2 * PI * i / sides + .4f));
+        quad(m, lower[i], upper[i], upper[i + 1], lower[i + 1], lit, material);
+        if (b > 0)
+            tri(m, q, upper[i], upper[i + 1], c, c, c, material);
+        if (a > 0)
+            tri(m, p, lower[i + 1], lower[i], lit, lit, lit, material);
+    }
+    return 0;
+}
+static bool load_landmarks(Script *s, const char *assets) {
+    char path[1024];
+    snprintf(path, sizeof path, "%s/scripts/landmarks.lua", assets);
+    lua_State *L = s->L;
+    if (luaL_dofile(L, path) != LUA_OK)
+        return failure(s);
+    for (int i = 0; i < s->rules.place_count; i++) {
+        Destination *d = &s->rules.places[i];
+        d->art = calloc(PROP_KINDS * PROP_FORMS, sizeof *d->art);
+        if (!d->art)
+            return false;
+        Color c = d->colours[3];
+        unsigned packed = ((unsigned)lroundf(c.r * 255) << 16) |
+                          ((unsigned)lroundf(c.g * 255) << 8) | (unsigned)lroundf(c.b * 255);
+        for (int kind = 0; kind < PROP_KINDS; kind++)
+            for (int v = 0; v < PROP_FORMS; v++) {
+                Mesh *shape = &d->art[kind * PROP_FORMS + v];
+                lua_getglobal(L, "build_landmark");
+                lua_pushinteger(L, d->profile);
+                lua_pushinteger(L, kind);
+                lua_pushinteger(L, v);
+                lua_pushinteger(L, packed);
+                lua_pushlightuserdata(L, shape);
+                lua_pushcclosure(L, draw_limb, 1);
+                if (lua_pcall(L, 5, 0, 0) != LUA_OK)
+                    return failure(s);
+                if (shape->failed)
+                    return false;
+            }
+    }
+    return true;
 }
 bool script_load(Script *s, const char *assets) {
     memset(s, 0, sizeof *s);
@@ -162,6 +286,15 @@ bool script_load(Script *s, const char *assets) {
     lua_pushcclosure(L, read_rules, 1);
     if (luaL_dofile(L, path) != LUA_OK || lua_pcall(L, 1, 0, 0) != LUA_OK)
         return failure(s);
+    if (s->rules.destination_file[0]) {
+        snprintf(path, sizeof path, "%s/scripts/%s", assets, s->rules.destination_file);
+        lua_pushlightuserdata(L, &s->rules);
+        lua_pushcclosure(L, read_destinations, 1);
+        if (luaL_dofile(L, path) != LUA_OK || lua_pcall(L, 1, 0, 0) != LUA_OK)
+            return failure(s);
+    }
+    if (s->rules.place_count && !load_landmarks(s, assets))
+        return false;
     if (s->rules.survey.file[0] && !survey_load(&s->rules.survey, assets)) {
         snprintf(s->error, sizeof s->error, "Could not read elevation grid %s",
                  s->rules.survey.file);
@@ -182,6 +315,15 @@ void script_close(Script *s) {
     if (s->L)
         lua_close(s->L);
     s->L = NULL;
+    for (int i = 0; i < s->rules.place_count; i++) {
+        Mesh *art = s->rules.places[i].art;
+        if (art) {
+            for (int j = 0; j < PROP_KINDS * PROP_FORMS; j++)
+                mesh_free(&art[j]);
+            free(art);
+            s->rules.places[i].art = NULL;
+        }
+    }
     forest_free(&s->forest);
     free(s->rules.survey.data);
     s->rules.survey.data = NULL;

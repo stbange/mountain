@@ -1,6 +1,7 @@
 #include "app.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -23,6 +24,71 @@ static Uint8 *track;
 static Uint32 track_size, track_pos;
 static SDL_AudioSpec track_format;
 
+static SDL_AudioStream *instrument;
+static const char *ambience(Profile profile) {
+    if (profile <= SURVEYED)
+        return "ridge";
+    if (profile == COAST || profile == BASALT || profile == KARST)
+        return "surf";
+    return profile >= LUNAR ? "resonance" : "wind";
+}
+static void chime(int pitch) {
+    if (!sound_on)
+        return;
+    char path[1150];
+    snprintf(path, sizeof path, "%s/sound/chime-%d.wav", assets, pitch);
+    SDL_AudioSpec format;
+    Uint8 *data = NULL;
+    Uint32 bytes = 0;
+    if (!SDL_LoadWAV(path, &format, &data, &bytes))
+        return;
+    if (!instrument)
+        instrument =
+            SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &format, NULL, NULL);
+    if (instrument) {
+        SDL_ClearAudioStream(instrument);
+        SDL_PutAudioStreamData(instrument, data, bytes);
+        SDL_ResumeAudioStreamDevice(instrument);
+    }
+    SDL_free(data);
+}
+#ifdef __EMSCRIPTEN__
+// clang-format off
+EM_JS(uint32_t, read_notes, (void), {
+    try { return Number(localStorage.getItem("mountain.field-notes.v1")) >>> 0; }
+    catch (e) { return 0; }
+});
+EM_JS(void, write_notes, (uint32_t notes), {
+    try { localStorage.setItem("mountain.field-notes.v1", String(notes >>> 0)); }
+    catch (e) {}
+});
+// clang-format on
+#else
+static char notes_path[1152];
+static uint32_t read_notes(void) {
+    char *dir = SDL_GetPrefPath("Mountain", "Mountain");
+    const char *override = SDL_getenv("MOUNTAIN_FIELD_NOTES");
+    if (override)
+        snprintf(notes_path, sizeof notes_path, "%s", override);
+    else if (dir)
+        snprintf(notes_path, sizeof notes_path, "%sfield-notes.v1", dir);
+    SDL_free(dir);
+    size_t n;
+    char *saved = SDL_LoadFile(notes_path, &n);
+    unsigned notes = 0;
+    if (saved)
+        sscanf(saved, "MTN1 %x", &notes);
+    SDL_free(saved);
+    return notes;
+}
+static void write_notes(uint32_t notes) {
+    char bytes[32], tmp[1200];
+    int n = snprintf(bytes, sizeof bytes, "MTN1 %08x\n", (unsigned)notes);
+    snprintf(tmp, sizeof tmp, "%s.tmp", notes_path);
+    if (SDL_SaveFile(tmp, bytes, n))
+        SDL_RenamePath(tmp, notes_path);
+}
+#endif
 static void SDLCALL fill_audio(void *unused, SDL_AudioStream *stream, int need, int total) {
     (void)unused;
     (void)total;
@@ -39,7 +105,7 @@ static void SDLCALL fill_audio(void *unused, SDL_AudioStream *stream, int need, 
 PUBLIC int mountain_sound(void) {
     if (!audio) {
         char path[1152];
-        snprintf(path, sizeof path, "%s/sound/ridge.wav", assets);
+        snprintf(path, sizeof path, "%s/sound/%s.wav", assets, ambience(game.world.profile));
         if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
             return 0;
         if (!track && !SDL_LoadWAV(path, &track_format, &track, &track_size))
@@ -56,7 +122,48 @@ PUBLIC int mountain_sound(void) {
         sound_on = SDL_ResumeAudioStreamDevice(audio);
     return sound_on;
 }
-PUBLIC int mountain_action(int action) { return game_action(&game, (Action)action); }
+PUBLIC int mountain_action(int action) {
+    uint32_t before = game.notes;
+    int pitch = -1;
+    if (action == ACT_USE && game.world.place && game.world.place->skill == ECHO &&
+        field_stage(&game) == 1 && game_near(&game) == NEAR_READ) {
+        float best = 2.25f;
+        for (int i = 0; i < 3; i++) {
+            Place p = field_pipe(&game.world, i);
+            float dist = (float)hypot(game.world.ox + (double)game.x - p.x,
+                                      game.world.oz + (double)game.z - p.z);
+            if (dist < best) {
+                pitch = i;
+                best = dist;
+            }
+        }
+    }
+    int ok = game_action(&game, (Action)action);
+    if (pitch >= 0)
+        chime(pitch);
+    if (before != game.notes) {
+        int stage = field_stage(&game);
+        uint32_t saved = read_notes();
+        for (int n = 0; n < scripts.rules.place_count; n++) {
+            unsigned shift = n * 2, mask = 3u << shift;
+            if ((saved & mask) > (game.notes & mask))
+                game.notes = (game.notes & ~mask) | (saved & mask);
+        }
+        if (field_stage(&game) != stage)
+            field_refresh(&game);
+        write_notes(game.notes);
+    }
+    return ok;
+}
+PUBLIC int mountain_observe(float offset) {
+    if (!game.world.place || game.world.place->skill != ALIGN || game_near(&game) != NEAR_READ)
+        return mountain_action(ACT_USE);
+    float yaw = game.yaw;
+    game_look(&game, offset, 0);
+    int ok = mountain_action(ACT_USE);
+    game.yaw = yaw;
+    return ok;
+}
 PUBLIC void mountain_input(float forward, float right) {
     input_f = clampf(forward, -1, 1);
     input_r = clampf(right, -1, 1);
@@ -80,14 +187,59 @@ PUBLIC double mountain_path(int index, int axis) {
 PUBLIC int mountain_wet(double x, double z) {
     return height_global(&game.world, x, z) < water_global(&game.world, x, z);
 }
-PUBLIC void mountain_seed(uint32_t seed) {
+static void arrive(int dest, uint32_t seed) {
+    uint32_t notes = game.notes;
+    const char *old = ambience(game.world.profile);
     int season = game.season, weather = game.weather;
     float hour = game.hour;
     bool cycle = game.cycle_seasons, changing = game.changing_weather;
-    game_init(&game, &scripts.rules, seed);
+    game_destination(&game, &scripts.rules, seed, dest);
+    game.notes = notes;
+    field_refresh(&game);
+    if (audio && strcmp(old, ambience(game.world.profile))) {
+        bool resume = sound_on;
+        SDL_DestroyAudioStream(audio);
+        audio = NULL;
+        SDL_free(track);
+        track = NULL;
+        track_size = track_pos = 0;
+        sound_on = false;
+        if (resume)
+            mountain_sound();
+    }
     game_conditions(&game, season, weather, hour);
     game.cycle_seasons = cycle;
     game.changing_weather = changing;
+}
+PUBLIC void mountain_seed(uint32_t seed) {
+    arrive(destination_for_seed(&scripts.rules, seed), seed);
+}
+PUBLIC void mountain_variant(uint32_t seed) {
+    if (game.world.profile <= SURVEYED)
+        mountain_seed(seed);
+    else
+        arrive(game.world.destination, seed);
+}
+PUBLIC int mountain_visit(int i) {
+    if (i < 0 || i >= scripts.rules.place_count)
+        return 0;
+    arrive(i, scripts.rules.places[i].seed);
+    return 1;
+}
+PUBLIC const char *mountain_entry(int i, int field) {
+    if (i < 0 || i >= scripts.rules.place_count)
+        return "";
+    const Destination *d = &scripts.rules.places[i];
+    return field == 1   ? d->region
+           : field == 2 ? d->signs[2]
+           : field == 3 ? (d->profile >= LUNAR ? "Beyond Earth" : "Earth")
+                        : d->name;
+}
+PUBLIC double mountain_ascent(int index, int axis) {
+    const Ascent *a = &game.world.ascent;
+    if (index < 0 || index >= a->count)
+        return NAN;
+    return axis ? a->point[index].z : a->point[index].x;
 }
 PUBLIC void mountain_pause(int state) {
     paused = state != 0;
@@ -95,6 +247,20 @@ PUBLIC void mountain_pause(int state) {
 }
 PUBLIC const char *mountain_label(int key) {
     switch (key) {
+    case 6:
+        return game.world.place ? game.world.place->stops[0] : "Lakeside View";
+    case 7:
+        return game.world.place ? game.world.place->stops[1] : "Ridge Lookout";
+    case 8:
+        return field_hint(&game);
+    case 9:
+        return game.world.place ? game.world.place->region : "Alpine backcountry";
+    case 10:
+        return game.world.place
+                   ? game.world.place->signs[field_stage(&game) < 2 ? field_stage(&game) : 2]
+                   : "";
+    case 11:
+        return game.world.place ? game.world.place->notes[2] : "";
     case 4:
         return scripts.rules.survey.name;
     case 5:
@@ -110,10 +276,7 @@ PUBLIC const char *mountain_label(int key) {
     }
 }
 PUBLIC const char *mountain_option(int kind, int index) {
-    if (kind && game.season == 3 && index == 2)
-        return game.rules->winter_precipitation;
-    return kind ? game.rules->skies[(unsigned)index % WEATHERS]
-                : game.rules->seasons[(unsigned)index % SEASONS];
+    return kind ? weather_label(&game, index) : game.rules->seasons[(unsigned)index % SEASONS];
 }
 PUBLIC float mountain_height(double x, double z) { return height_global(&game.world, x, z); }
 PUBLIC int mountain_sightings(void) {
@@ -155,6 +318,8 @@ PUBLIC double mountain_value(int key) {
     case 7:
         return game.world.seed;
     case 8:
+        if (game.world.profile > SURVEYED)
+            return floorf(game.world.place->datum + eye(&game).y - 1.65f);
         return game.world.survey ? floorf(game.world.survey->surface +
                                           (eye(&game).y - 1.65f) * game.world.survey->scale)
                                  : floorf(1640 + eye(&game).y - 1.65f);
@@ -192,6 +357,30 @@ PUBLIC double mountain_value(int key) {
         return trail_station(&game.world, game.x, game.z) / TRAIL_STEP;
     case 27:
         return fmax(fabs(game.world.ox + (double)game.x), fabs(game.world.oz + (double)game.z));
+    case 28:
+        return game.world.destination;
+    case 29:
+        return scripts.rules.place_count;
+    case 30:
+        return field_stage(&game);
+    case 31:
+        return game.world.ascent.count;
+    case 32:
+        return game.world.ascent.pass;
+    case 33:
+        return game.fall_time > 0 ? 2 : game.warning_timer > 0 ? 3 : game.exposed;
+    case 34:
+        return game.notes;
+    case 35:
+        return game.falls;
+    case 36:
+        return game.world.profile;
+    case 37: {
+        const Ascent *a = &game.world.ascent;
+        double x = game.world.ox + (double)game.x, z = game.world.oz + (double)game.z;
+        return a->count && hypot(x - a->start.x, z - a->start.z) > 36 &&
+               ascent_distance(&game.world, x, z) < 24;
+    }
     case 25:
         return scripts.rules.survey.data != NULL;
     default:
@@ -261,8 +450,15 @@ static void key(SDL_Keycode k) {
         if (scripts.rules.survey.data)
             mountain_seed(scripts.rules.survey.seed);
         break;
+    case SDLK_LEFTBRACKET:
+    case SDLK_RIGHTBRACKET:
+        if (scripts.rules.place_count)
+            mountain_visit((game.world.destination + scripts.rules.place_count +
+                            (k == SDLK_RIGHTBRACKET ? 1 : -1)) %
+                           scripts.rules.place_count);
+        break;
     case SDLK_N:
-        mountain_seed(SDL_rand_bits());
+        mountain_variant(SDL_rand_bits());
         break;
     case SDLK_P:
         mountain_photo();
@@ -322,6 +518,9 @@ bool mountain_step(void) {
     return running;
 }
 void mountain_close(void) {
+    if (instrument)
+        SDL_DestroyAudioStream(instrument);
+    instrument = NULL;
     if (audio)
         SDL_DestroyAudioStream(audio);
     SDL_free(track);
@@ -371,6 +570,8 @@ bool mountain_open(const char *asset_dir, int width, int height) {
         return false;
     }
     game_init(&game, &scripts.rules, scripts.rules.seed);
+    game.notes = read_notes();
+    field_refresh(&game);
     window = SDL_CreateWindow("Mountain", width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!window || !(context = SDL_GL_CreateContext(window)) || !(display = display_open(assets))) {
         SDL_Log("Mountain display: %s", SDL_GetError());

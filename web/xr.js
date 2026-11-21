@@ -35,8 +35,10 @@ window.mountainXR = {
       let last = 0,
         turned = false,
         summoned = false,
+        timeHeld = false,
         seasonHeld = false,
-        weatherHeld = false;
+        weatherHeld = false,
+        headYaw = 0;
       const leave = () => {
         this.session = null;
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -45,7 +47,10 @@ window.mountainXR = {
         resize();
       };
       session.addEventListener("end", leave, { once: true });
-      session.addEventListener("select", () => act(2));
+      session.addEventListener("select", () => {
+        Module._mountain_observe(headYaw);
+        refresh();
+      });
       session.addEventListener("squeeze", () => act(1));
       Module._mountain_xr_active(1);
       const frame = (now, xrFrame) => {
@@ -58,7 +63,8 @@ window.mountainXR = {
             turn = 0,
             button = false,
             season = false,
-            weather = false;
+            weather = false,
+            time = false;
           for (const source of session.inputSources) {
             const gp = source.gamepad;
             if (!gp) continue;
@@ -68,6 +74,7 @@ window.mountainXR = {
             if (source.handedness === "right") {
               turn = x;
               button = Boolean(gp.buttons[4]?.pressed);
+              time = Boolean(gp.buttons[5]?.pressed);
             } else {
               season = Boolean(gp.buttons[4]?.pressed);
               weather = Boolean(gp.buttons[5]?.pressed);
@@ -80,15 +87,17 @@ window.mountainXR = {
           turned = Math.abs(turn) > 0.5;
           if (season && !seasonHeld) act(4);
           if (weather && !weatherHeld) act(5);
+          if (time && !timeHeld) act(3);
+          timeHeld = time;
           seasonHeld = season;
           weatherHeld = weather;
           if (button && !summoned) act(1);
           summoned = button;
-          const rot = pose.transform.orientation,
-            headYaw = Math.atan2(
-              -2 * (rot.w * rot.y + rot.x * rot.z),
-              1 - 2 * (rot.y * rot.y + rot.x * rot.x),
-            );
+          const rot = pose.transform.orientation;
+          headYaw = Math.atan2(
+            -2 * (rot.w * rot.y + rot.x * rot.z),
+            1 - 2 * (rot.y * rot.y + rot.x * rot.x),
+          );
           Module._mountain_walk(
             elapsed,
             forward * Math.cos(headYaw) - right * Math.sin(headYaw),

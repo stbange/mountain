@@ -3,9 +3,12 @@
 #include <string.h>
 
 void game_init(Game *g, const Rules *r, uint32_t seed) {
+    game_destination(g, r, seed, destination_for_seed(r, seed));
+}
+void game_destination(Game *g, const Rules *r, uint32_t seed, int destination) {
     memset(g, 0, sizeof *g);
     g->rules = r;
-    world_init(&g->world, seed, r);
+    world_destination(&g->world, seed, r, destination);
     g->changing_weather = true;
     g->yaw = trail_bearing(&g->world);
     g->pitch = g->world.survey ? -.008f : .04f;
@@ -29,6 +32,8 @@ void select_weather(Game *g, int weather) {
 const char *trail_name(const Game *g) {
     if (g->world.survey)
         return g->world.survey->name;
+    if (g->world.place && g->world.profile > SURVEYED)
+        return g->world.place->name;
     return g->rules->trails[g->world.seed % TRAILS];
 }
 Vec cabin_world(const Cabin *c, float x, float y, float z) {
@@ -55,7 +60,7 @@ Vec eye(const Game *g) {
     float h = g->cabin.inside
                   ? g->cabin.y
                   : fmaxf(water_at(&g->world, g->x, g->z) - .25f, ground(g, g->x, g->z));
-    return (Vec){g->x, h + 1.65f, g->z};
+    return (Vec){g->x, (g->fall_time > 0 ? g->fall_y : h) + 1.65f, g->z};
 }
 void game_look(Game *g, float dx, float dy) {
     g->yaw = remainderf(g->yaw + dx, 2 * PI);
@@ -71,7 +76,7 @@ static void place(Game *g, float lx, float lz, bool face_back) {
 Interaction game_near(const Game *g) {
     const Cabin *c = &g->cabin;
     if (!c->present)
-        return NEAR_NONE;
+        return field_near(g);
     Vec p = cabin_local(c, g->x, g->z);
     if (c->inside) {
         if (fabsf(p.x) > 2.f)
@@ -83,7 +88,7 @@ Interaction game_near(const Game *g) {
         return NEAR_NONE;
     }
     if (fabsf(p.x) > 2.1f || p.z < 3.65f || p.z > 11.35f)
-        return NEAR_NONE;
+        return field_near(g);
     return c->open ? NEAR_ENTER : NEAR_OPEN;
 }
 static void cross_door(Game *g, Interaction action) {
@@ -142,6 +147,8 @@ static void grove_support(Game *g) {
 }
 bool game_action(Game *g, Action action) {
     Cabin *c = &g->cabin;
+    if (g->fall_time > 0 && (action == ACT_CABIN || action == ACT_USE))
+        return false;
     switch (action) {
     case ACT_CABIN:
         if (c->inside)
@@ -165,6 +172,8 @@ bool game_action(Game *g, Action action) {
         return true;
     case ACT_USE: {
         Interaction action_here = game_near(g);
+        if (action_here == NEAR_READ || action_here == NEAR_TREASURE)
+            return field_read(g);
         if (action_here == NEAR_NONE)
             return false;
         cross_door(g, action_here);
@@ -233,14 +242,14 @@ bool cabin_in_view(const Game *g) {
 }
 /* A multiple of every placement grid keeps small local coordinates in the
    renderer, while authoritative sites and terrain cells retain their identity. */
-void world_track(Game *g) {
-    int64_t dx = (int64_t)floor(((double)g->x + WORLD_FRAME * .5) / WORLD_FRAME) * WORLD_FRAME;
-    int64_t dz = (int64_t)floor(((double)g->z + WORLD_FRAME * .5) / WORLD_FRAME) * WORLD_FRAME;
-    if (dx || dz) {
-        g->world.ox += dx;
-        g->world.oz += dz;
-        g->x = (float)((double)g->x - dx);
-        g->z = (float)((double)g->z - dz);
+void world_position(Game *g, double x, double z) {
+    int64_t ox = (int64_t)floor(x / WORLD_FRAME + .5) * WORLD_FRAME;
+    int64_t oz = (int64_t)floor(z / WORLD_FRAME + .5) * WORLD_FRAME;
+    g->x = (float)(x - ox);
+    g->z = (float)(z - oz);
+    if (ox != g->world.ox || oz != g->world.oz) {
+        g->world.ox = ox;
+        g->world.oz = oz;
         if (g->cabin.present) {
             g->cabin.x = (float)(g->cabin.site_x - g->world.ox);
             g->cabin.z = (float)(g->cabin.site_z - g->world.oz);
@@ -252,9 +261,13 @@ void world_track(Game *g) {
     }
     trail_window(&g->world, g->x, g->z);
 }
+void world_track(Game *g) {
+    world_position(g, g->world.ox + (double)g->x, g->world.oz + (double)g->z);
+}
 void game_tick(Game *g, float dt, float f, float r) {
     dt = clampf(dt, 0, .20f);
     g->elapsed += dt;
+    g->note_timer = fmaxf(0, g->note_timer - dt);
     g->hour = fmodf(g->hour + dt * g->rules->clock_rate, 24);
     if (g->cycle_seasons)
         g->season_clock += dt;
@@ -269,6 +282,8 @@ void game_tick(Game *g, float dt, float f, float r) {
         g->weather = (g->weather + 1 + (int)(pick % 3)) % WEATHERS;
         g->weather_clock = 0;
     }
+    if (footing_recover(g, dt))
+        return;
     float n = hypotf(f, r);
     if (n < .001f)
         return;
@@ -277,6 +292,20 @@ void game_tick(Game *g, float dt, float f, float r) {
         speed *= .70f;
     float x = g->x + speed * (sinf(g->yaw) * f + cosf(g->yaw) * r);
     float z = g->z + speed * (-cosf(g->yaw) * f + sinf(g->yaw) * r);
+    float old_x = g->x, old_z = g->z;
     move(g, x, z);
+    footing_move(g, old_x, old_z, dt);
     world_track(g);
+}
+
+const char *weather_label(const Game *g, int index) {
+    if (g->world.profile == LUNAR)
+        return "Airless";
+    if (index == 2 && g->world.profile == DUNES)
+        return "Dust";
+    if (index == 2 && g->world.profile >= PRISM)
+        return g->world.profile == CINDER ? "Ashfall" : "Drift";
+    if (g->season == 3 && index == 2 && g->world.profile <= SURVEYED)
+        return g->rules->winter_precipitation;
+    return g->rules->skies[(unsigned)index % WEATHERS];
 }
