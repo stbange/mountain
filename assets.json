@@ -1,6 +1,7 @@
 [
   "assets/CREDITS.txt",
   "assets/LICENSE-ART.txt",
+  "assets/art/clouds.tga",
   "assets/art/field.tga",
   "assets/art/letters.tga",
   "assets/scripts/cabin.lua",
@@ -10,6 +11,8 @@
   "assets/scripts/world.lua",
   "assets/shaders/ridge.frag",
   "assets/shaders/ridge.vert",
+  "assets/shaders/shadow.frag",
+  "assets/shaders/surface.glsl",
   "assets/sound/chime-0.wav",
   "assets/sound/chime-1.wav",
   "assets/sound/chime-2.wav",

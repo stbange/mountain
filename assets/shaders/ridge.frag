@@ -1,9 +1,7 @@
-varying vec3 v_pos;
-varying vec3 v_colour;
-varying vec3 v_uvm;
-varying float v_dist;
-uniform sampler2D u_atlas;
-uniform sampler2D u_canopy;
+IN vec3 v_pos;
+IN vec3 v_colour;
+IN vec3 v_uvm;
+IN float v_dist;
 uniform sampler2D u_lake;
 uniform sampler2D u_trail;
 uniform float u_season;
@@ -11,7 +9,6 @@ uniform int u_profile;
 uniform vec3 u_soil;
 uniform vec3 u_liquid;
 uniform vec3 u_trail_center;
-uniform vec3 u_pattern;
 uniform int u_reflection;
 uniform float u_water;
 uniform vec4 u_viewport;
@@ -22,25 +19,88 @@ uniform vec3 u_horizon;
 uniform vec3 u_zenith;
 uniform vec4 u_air;
 uniform float u_clock;
-float hash(vec2 p) {
-    vec3 a=fract(vec3(p.xyx)*vec3(.1031,.1030,.0973));
-    a+=dot(a,a.yzx+33.33); return fract((a.x+a.y)*a.z);
+uniform vec3 u_sky_fill;
+uniform vec3 u_bounce;
+uniform vec4 u_light_params; // cloud strength, shadow softness, inverse near/far texture sizes
+uniform vec3 u_cloud_origin;
+uniform sampler2D u_near_depth;
+uniform sampler2D u_far_depth;
+uniform mat4 u_near_light;
+uniform mat4 u_far_light;
+uniform int u_house;
+uniform vec4 u_lamps[4]; // world position and radius, zero for unused slots
+uniform vec3 u_lamp_colour[4];
+
+// A periodic cloud deck has one coordinate system for the sky and its shadow, even after rebasing.
+uniform sampler2D u_clouds;
+float clouds(vec3 from,vec3 ray) {
+    vec2 scale=vec2(1.22,2.32);
+    vec2 uv=u_cloud_origin.xz+from.xz*scale/950.0
+            +ray.xz/max(.055,ray.y)*max(.015,1.0-from.y/950.0)*scale+vec2(u_clock*.006,-.49);
+    return SAMPLE(u_clouds,uv/16.0).r;
 }
-float noise(vec2 p) {
-    vec2 a=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
-    return mix(mix(hash(a),hash(a+vec2(1,0)),f.x),mix(hash(a+vec2(0,1)),hash(a+1.0),f.x),f.y);
+float cloudThreshold(float weather) {
+    return weather==0.0?.59:(weather==3.0?.49:.38);
 }
-float clouds(vec2 p) {
-    return noise(p)*.55+noise(p*2.04+7.2)*.27+noise(p*4.17-3.8)*.12+noise(p*8.2)*.06;
+float readShadow(sampler2D depthMap,vec3 pos,float texel,float bias) {
+    if(min(pos.x,pos.y)<texel || max(pos.x,pos.y)>1.0-texel || pos.z<=0.0 || pos.z>=1.0) return 1.0;
+    float z=pos.z-bias;
+    if(u_light_params.y<.05) return step(z,SAMPLE(depthMap,pos.xy).r);
+    vec2 pixel=pos.xy/texel-.5;
+    vec2 uv=(floor(pixel)+.5)*texel, f=fract(pixel);
+    f=clamp((f-.5)/u_light_params.y+.5,0.0,1.0);
+    return mix(mix(step(z,SAMPLE(depthMap,uv).r),step(z,SAMPLE(depthMap,uv+vec2(texel,0)).r),f.x),
+               mix(step(z,SAMPLE(depthMap,uv+vec2(0,texel)).r),step(z,SAMPLE(depthMap,uv+texel).r),f.x),f.y);
+}
+float visibility(vec3 world,float incidence) {
+    vec3 nearPos=(u_near_light*vec4(world,1.0)).xyz*.5+.5;
+    float edge=max(abs(nearPos.x-.5),abs(nearPos.y-.5));
+    float bias=(.025+.10*(1.0-incidence))/5200.0;
+    float close=1.0;
+    if(edge<.49) close=readShadow(u_near_depth,nearPos,u_light_params.z,bias);
+    if(edge<=.43) return close;
+    vec3 farPos=(u_far_light*vec4(world,1.0)).xyz*.5+.5;
+    float farLight=readShadow(u_far_depth,farPos,u_light_params.w,bias+.00019);
+    return mix(close,farLight,smoothstep(.43,.49,edge));
+}
+vec3 irradiance(vec3 normal,float direct,vec3 point) {
+    float day=u_air.y, weather=u_air.w;
+    float cloudiness=(weather==2.0?.87:(weather==3.0?.68:(weather==1.0?.38:0.0)))*u_light_params.x;
+    float skyView=.64+.36*max(0.0,normal.y);
+    vec3 ambient=u_sky_fill*skyView*mix(.115,1.0,day)
+                +u_bounce*(.35+.65*(1.0-max(0.0,normal.y)))*mix(.10,1.0,day);
+    ambient+=vec3(.18,.17,.15)*cloudiness*day;
+    if(u_house==1) ambient*=.68;
+    vec3 light=ambient;
+    if(u_sun.y>0.0 && direct>0.0) {
+        float visible=visibility(point,direct);
+        if(visible>0.0 && u_light_params.x>0.0) {
+            float t=cloudThreshold(weather);
+            float cover=smoothstep(t,t+.115,clouds(point,u_sun));
+            visible*=1.0-u_light_params.x*cover*.76;
+        }
+        vec3 sun=mix(vec3(1.04,1.02,.92),vec3(1.54,.83,.43),u_air.z);
+        light+=sun*visible*direct*(1.0-cloudiness)*smoothstep(0.0,.15,u_sun.y);
+    }
+    if(u_house==1) {
+        for(int i=0;i<4;i++) {
+            vec3 delta=u_lamps[i].xyz-point;
+            float dist=length(delta),radius=u_lamps[i].w;
+            float falloff=max(0.0,1.0-dist/max(radius,.001));
+            float facing=.26+.74*max(0.0,dot(normal,delta/max(dist,.001)));
+            light+=u_lamp_colour[i]*falloff*falloff*facing*mix(2.6,.10,day);
+        }
+    }
+    return light;
 }
 void main() {
     float day=u_air.y, warmth=u_air.z, weather=u_air.w;
     float grain=(hash(floor(gl_FragCoord.xy))-.5)/130.0;
-    if(u_layer==3) { gl_FragColor=texture2D(u_atlas,v_uvm.xy); return; }
+    if(u_layer==3) { FRAGMENT=SAMPLE(u_atlas,v_uvm.xy); return; }
     if(u_layer==2) {
-        vec4 ink=v_uvm.z>.5?texture2D(u_atlas,v_uvm.xy):vec4(1);
+        vec4 ink=v_uvm.z>.5?SAMPLE(u_atlas,v_uvm.xy):vec4(1);
         if(ink.a<.45) discard;
-        gl_FragColor=vec4(v_colour*ink.rgb,1); return;
+        FRAGMENT=vec4(v_colour*ink.rgb,1); return;
     }
     if(u_layer==1) {
         vec3 ray=normalize(v_pos);
@@ -56,9 +116,8 @@ void main() {
         vec2 stars=vec2(atan(ray.z,ray.x),asin(clamp(ray.y,-1.0,1.0)))*170.0;
         float star=step(.985,hash(floor(stars)))*(1.0-smoothstep(.07,.32,length(fract(stars)-.5)));
         sky+=vec3(.79,.83,.84)*star*(u_profile==7?1.0:(1.0-day))*smoothstep(-.04,.2,h);
-        vec2 uv=ray.xz/(h+.115)*vec2(1.22,2.32)+vec2(u_clock*.002,-.49);
-        float cloud=clouds(uv), threshold=weather==0.0?.56:(weather==3.0?.52:.36);
-        float cover=smoothstep(threshold,threshold+.115,cloud)*smoothstep(-.03,.11,ray.y);
+        float cloud=clouds(u_eye,ray), threshold=cloudThreshold(weather);
+        float cover=smoothstep(threshold,threshold+.115,cloud)*smoothstep(-.03,.11,ray.y)*u_light_params.x;
         vec3 shadow=mix(vec3(.12,.15,.22),mix(vec3(.71,.76,.78),vec3(.85,.73,.68),warmth),day);
         vec3 highlight=mix(vec3(.30,.33,.39),vec3(1.0,.95,.849),day);
         if(weather==2.0) highlight=mix(highlight,shadow,.54);
@@ -89,35 +148,31 @@ void main() {
                 sky=mix(sky,mix(u_soil,vec3(1),.50),smoothstep(.9995,.99965,small));
             }
         }
-        gl_FragColor=vec4(sky+grain,1); return;
+        FRAGMENT=vec4(sky+grain,1); return;
     }
     float dist=length(v_pos-u_eye);
     float mat=v_uvm.z;
     vec2 groundUV=mod(v_pos.xz+u_pattern.xz,4096.0);
     if(u_reflection==1 && (v_pos.y<u_water || (mat>1.5 && mat<2.5))) discard;
+    vec3 geometric=cross(dFdx(v_pos),dFdy(v_pos));
+    vec3 normal=geometric*inversesqrt(max(dot(geometric,geometric),1.e-16));
+    if(dot(normal,u_eye-v_pos)<0.0) normal=-normal;
     vec3 col=v_colour;
     if(mat>.5 && mat<1.5) {
-        vec4 spr=mat>1.4?texture2D(u_canopy,v_uvm.xy):texture2D(u_atlas,v_uvm.xy); if(spr.a<.48) discard;
-        col*=spr.rgb;
+        col*=foliage(v_pos,v_uvm);
     } else if(mat>1.5 && mat<2.5) {
         float ribbon=noise(vec2(groundUV.x*.14+u_clock*.16,groundUV.y*1.65+u_clock*.085));
         float remote=smoothstep(45.0,360.0,dist);
         col=mix(u_liquid,u_horizon*.88,.12+remote*.33);
-        if(u_profile==11){float cracks=noise(groundUV*.39+u_clock*.07);gl_FragColor=vec4(mix(vec3(.28,.085,.07),vec3(1.0,.55,.12),smoothstep(.31,.66,cracks)),1);return;}
+        if(u_profile==11){float cracks=noise(groundUV*.39+u_clock*.07);FRAGMENT=vec4(mix(vec3(.28,.085,.07),vec3(1.0,.55,.12),smoothstep(.31,.66,cracks)),1);return;}
         vec2 screen=(gl_FragCoord.xy-u_viewport.xy)/u_viewport.zw;
         float wave=noise(vec2(groundUV.x*.07,groundUV.y*.68+u_clock*.07))-.5;
-        vec3 reflection=texture2D(u_lake,clamp(screen+vec2(wave*.009,(ribbon-.5)*.019),.002,.998)).rgb;
+        vec3 reflection=SAMPLE(u_lake,clamp(screen+vec2(wave*.009,(ribbon-.5)*.019),.002,.998)).rgb;
         col=mix(col*(.29+.71*day),reflection,.48+.22*remote);
         col+=vec3(.11,.14,.13)*smoothstep(.72,.92,ribbon)*(.30+.70*day);
-        gl_FragColor=vec4(col+grain,1);return;
+        FRAGMENT=vec4(col+grain,1);return;
     } else if(mat>4.5 && mat<5.5) {
-        vec2 uv=fract(v_uvm.xy);
-        float edge=max(abs(uv.x-.5),abs(uv.y-.5));
-        vec2 canopy=groundUV*.90+vec2(.37*v_pos.y,v_pos.y*1.32);
-        float clump=noise(canopy*8.0);
-        float needles=noise(canopy*vec2(17.0,34.0));
-        if(edge>.37 && clump+needles*.34<.39) discard;
-        col*=.77+.32*clump+.22*needles;
+        col*=foliage(v_pos,v_uvm);
     } else if(mat>2.5 && mat<3.5) {
         float rings=noise(vec2((groundUV.x+groundUV.y)*3.1,v_pos.y*34.0));
         col*=.92+.15*rings;
@@ -125,18 +180,14 @@ void main() {
         float detail=noise(groundUV*.87+v_pos.y*.2);
         col*=.963+.08*detail;
         if(mat>3.5 && mat<4.5) {
-            vec3 normal=vec3(v_uvm.x,sqrt(max(.001,1.0-dot(v_uvm.xy,v_uvm.xy))),v_uvm.y);
-            float direct=max(0.0,dot(normal,u_sun));
-            float sunlight=(.87+.24*direct);
-            col*=mix(1.0,sunlight,weather==0.0?day:.25*day);
+            normal=vec3(v_uvm.x,sqrt(max(.001,1.0-dot(v_uvm.xy,v_uvm.xy))),v_uvm.y);
             float crag=smoothstep(49.0,155.0,v_pos.y);
             float seams=noise(vec2(groundUV.x*.065+groundUV.y*.036+v_pos.y*.023,v_pos.y*.027))+detail*.18;
             col*=1.0-crag*smoothstep(.48,.83,seams)*.22;
-            col+=vec3(.16,.07,.028)*direct*warmth*crag*day;
             vec2 uvTrail=(v_pos.xz-u_trail_center.xz)/512.0+.5;
             float distanceToTrail=6.0;
             if(all(greaterThan(uvTrail,vec2(.002))) && all(lessThan(uvTrail,vec2(.998))))
-                distanceToTrail=6.0*texture2D(u_trail,uvTrail).r;
+                distanceToTrail=6.0*SAMPLE(u_trail,uvTrail).r;
             float edge=distanceToTrail+(noise(groundUV*1.35)-.5)*.56;
             float tread=1.0-smoothstep(1.15,2.12,edge);
             vec3 grit=mix(vec3(.49,.37,.25),vec3(.76,.64,.45),detail);
@@ -146,18 +197,21 @@ void main() {
             if(u_profile==7)col*=.81+.28*noise(groundUV*5.0);
             float gravel=noise(groundUV*7.0);
             grit*=.90+.13*gravel+.09*smoothstep(.71,.88,gravel);
-            col=mix(col,grit*sunlight,tread*.97);
+            col=mix(col,grit,tread*.97);
         }
     }
-    vec3 tint=mix(vec3(.23,.31,.48),vec3(1.0,.99,.94),day);
-    tint+=vec3(.09,.005,-.065)*warmth*day;
-    col*=tint;
-    if(mat>4.5) col=mix(col,v_colour, .81);
+    float direct=max(0.0,dot(normal,u_sun));
+    if((mat>.5 && mat<1.5) || (mat>4.5 && mat<5.5)) {
+        // Needles and leaves scatter light through both sides of their silhouettes.
+        direct=.36+.64*abs(dot(normal,u_sun));
+    }
+    col*=pow(max(vec3(.001),irradiance(normal,direct,v_pos)),vec3(1.0/2.2));
+    if(mat>6.5) col=mix(col,v_colour,.82*(1.0-day));
     float fograte=weather==3.0?.0065:(weather==2.0?.0037:(weather==1.0?.0019:.00078));
-    if(mat>5.5)col=v_colour*(1.0+.11*sin(u_clock*1.8+v_pos.y));
-    if(u_profile==7)fograte=.000045;
+    if(mat>5.5 && mat<6.5)col=v_colour*(1.0+.11*sin(u_clock*1.8+v_pos.y));
+    if(u_profile==7)fograte=0.0;
     float fog=1.0-exp(-dist*fograte);
     vec3 fogcol=mix(u_horizon,mix(vec3(.43,.53,.63),vec3(.62,.69,.72),day),.48*day);
     col=mix(col,fogcol,fog*.91);
-    gl_FragColor=vec4(col+grain,1);
+    FRAGMENT=vec4(col+grain,1);
 }

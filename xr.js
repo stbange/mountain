@@ -51,7 +51,10 @@ window.mountainXR = {
         Module._mountain_observe(headYaw);
         refresh();
       });
-      session.addEventListener("squeeze", () => act(1));
+      session.addEventListener("squeeze", (event) => {
+        const atDoor = [1, 2, 3].includes(val(13));
+        act(event.inputSource?.handedness === "left" && atDoor ? 9 : 1);
+      });
       Module._mountain_xr_active(1);
       const frame = (now, xrFrame) => {
         if (this.session !== session) return;
