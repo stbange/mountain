@@ -139,7 +139,6 @@ static void surface_plane(Mesh *mesh, const Crown *volume, const Game *g, int sp
             mask[j][i] =
                 exposed ? (unsigned char)coating(g, volume, cell[0], cell[1], cell[2], seed) : 0;
         }
-    static const float light[3][2] = {{1, .85f}, {.62f, 1.23f}, {.92f, .78f}};
     for (int j = 0; j < dims[v]; j++)
         for (int i = 0; i < dims[u]; i++) {
             int material = mask[j][i];
@@ -155,7 +154,7 @@ static void surface_plane(Mesh *mesh, const Crown *volume, const Game *g, int sp
             cell[u] = i;
             cell[v] = j;
             Color tint = shade(pigment(g, volume, species, cell[0], cell[1], cell[2], seed),
-                               light[axis][sign > 0]);
+                               axis == 1 && sign < 0 ? .85f : 1.f);
             Vec corners[4];
             for (int k = 0; k < 4; k++) {
                 int point[3];

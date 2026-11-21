@@ -37,6 +37,7 @@ assert(#places==12)
 load("landmarks")
 record(build_landmark)
 for id,place in ipairs(places) do
+  assert(place.lighting.clouds>=0 and place.lighting.softness>=0 and math.type(place.lighting.sky)=="integer")
   assert(#place.colours==6 and #place.stops==2 and #place.discovery==7)
   for kind=0,6 do
     for variant=0,2 do
@@ -64,13 +65,15 @@ end
 load("cabin")
 record(build_room);record(room_title)
 local function shapes(i,open,front)
-  local n, blocked, ink=0,false,0
-  build_room(i,open,front,function(x,y,z,w,h,d,colour,material,yaw,roll)
+  local n, blocked, ink, lights=0,false,0,0
+  build_room(i,open,front,function(x,y,z,w,h,d,colour,material,yaw,roll,radius)
     assert(w>0 and h>0 and d>0 and math.type(colour)=="integer")
+    if radius then assert(radius>0 and material==7);lights=lights+1 end
     n=n+1;ink=(ink+colour+math.floor((x+y+z)*200))%1000000007
     -- Test the centre of the entrance aperture at eye height.
     if math.abs(x)<w/2 and math.abs(y-1.65)<h/2 and math.abs(z-4.02)<d/2 then blocked=true end
   end)
+  if i==0 then assert(lights==2) end
   return n,blocked,ink
 end
 local closed,blocked=shapes(0,false,true)

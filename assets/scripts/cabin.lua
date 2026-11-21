@@ -1,5 +1,5 @@
 -- Dimensions in metres. Each call emits a bounded, repeatable room.
--- box(x,y,z, width,height,depth, colour, material?, yaw?) uses centred boxes.
+-- box(x,y,z, width,height,depth, colour, material?, yaw?, roll?, lightRadius?) uses centred boxes.
 local oak, pine, trim = 0x986543, 0xc38d59, 0x69462f
 local wood = {0xa57650,0xa2734d,0xac7c52,0xb18057}
 local cloth = {0xad5847,0x477773,0x737e50,0x657887,0xb17c50}
@@ -61,7 +61,7 @@ local function stove(b)
     b(2.24+col*.30,.32+row*.25,2.78,.29,.24,.62,0x776c60+n*0x080704)
   end end
   b(2.70,.72,2.44,.94,1.13,.62,0x414744)
-  b(2.70,.71,2.105,.60,.54,.04,0xdd8942,5)
+  b(2.70,.71,2.105,.60,.54,.04,0xdd8942,7,0,0,3.7)
   for j=1,4 do b(2.42+j*.12,.69,2.07,.035,.51,.045,0x614835) end
   b(2.70,2.18,2.60,.29,2.0,.29,0x484a43)
 end
@@ -122,7 +122,7 @@ function build_room(i,open,front,b)
       b(.67,1.0,4.19,.14,.14,.13,0xd1ad6c)
     end
     b(0,-.13,4.53,3.4,.25,1.0,oak,3); b(0,-.28,5.15,2.62,.25,.39,0x817c67)
-    b(-1.34,1.98,4.26,.24,.43,.25,0xf6c27a,5); b(-1.34,2.22,4.26,.37,.09,.34,trim)
+    b(-1.34,1.98,4.26,.24,.43,.25,0xf6c27a,7); b(-1.34,2.22,4.26,.37,.09,.34,trim)
   end
   b(0,.023,0,2.2,.045,3.6,colour)
   for _,z in ipairs({-1.55,-1.44,1.44,1.55}) do b(0,.051,z,2.12,.018,.05,0xe1bf89) end
@@ -139,7 +139,7 @@ function build_room(i,open,front,b)
   if i==0 then
     bed(b,-2.75,-1.78,colour);
     table_at(b,-1.06,-2.72,.66,.60); b(-1.06,1.07,-2.72,.11,.38,.11,0x86603c);
-    b(-1.06,1.36,-2.72,.41,.32,.42,0xf3c17f,5); kitchen(b); stove(b); shelf(b,-2.75,3.45)
+    b(-1.06,1.36,-2.72,.41,.32,.42,0xf3c17f,7,0,0,3.2); kitchen(b); stove(b); shelf(b,-2.75,3.45)
     table_at(b,-3.53,1.28,1.1,1.7); b(-3.54,.94,1.30,.52,.032,.68,0xe9dbb2,0,.16)
     b(-3.57,1.03,.75,.14,.18,.14,0x45595b); b(-2.52,.38,1.30,.58,.76,.60,oak,3)
   elseif i%5==2 then

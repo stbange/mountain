@@ -1,16 +1,16 @@
-attribute vec3 a_pos;
-attribute vec3 a_colour;
-attribute vec3 a_uvm;
+IN vec3 a_pos;
+IN vec3 a_colour;
+IN vec3 a_uvm;
 uniform mat4 u_vp;
 uniform mat4 u_inverse;
 uniform vec3 u_eye;
 uniform vec3 u_pattern;
 uniform float u_clock;
 uniform int u_layer;
-varying vec3 v_pos;
-varying vec3 v_colour;
-varying vec3 v_uvm;
-varying float v_dist;
+OUT vec3 v_pos;
+OUT vec3 v_colour;
+OUT vec3 v_uvm;
+OUT float v_dist;
 void main() {
     v_colour=a_colour; v_uvm=a_uvm; v_pos=a_pos;
     if(u_layer==0) {

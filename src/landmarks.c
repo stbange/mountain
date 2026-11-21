@@ -149,16 +149,14 @@ void field_scenery(Mesh *m, const Game *g) {
         if (stage == 1) {
             if (w->place->skill == DUSK) {
                 prop(m, w, NEEDLE, 0, x, y, z, yaw, 1);
-                float sun = (g->hour - 12) * PI / 12;
-                float stretch = .27f + .70f * fabsf(sinf(sun));
-                Color colour = w->profile == FUNGAL && g->hour >= 16.5f && g->hour <= 19.5f
-                                   ? w->place->colours[3]
-                                   : rgb(0x4b4645);
-                float bearing = yaw + (g->hour - 18) * PI / 12;
-                Vec left = {x - .065f * cosf(bearing), y + .963f, z - .065f * sinf(bearing)},
-                    tip = {x + stretch * sinf(bearing), y + .964f, z - stretch * cosf(bearing)},
-                    right = {x + .065f * cosf(bearing), y + .963f, z + .065f * sinf(bearing)};
-                tri(m, left, tip, right, colour, colour, colour, w->profile == FUNGAL ? 6 : 0);
+                /* The upright casts the solar shadow. The engraved bearing remains readable at
+                 * dusk. */
+                Color mark = w->profile == FUNGAL ? w->place->colours[3] : rgb(0xc99e68);
+                Vec left = {x - .05f * cosf(yaw), y + .966f, z - .05f * sinf(yaw)},
+                    tip = {x + .76f * sinf(yaw), y + .966f, z - .76f * cosf(yaw)},
+                    right = {x + .05f * cosf(yaw), y + .966f, z + .05f * sinf(yaw)};
+                bool glowing = w->profile == FUNGAL && g->hour >= 16.5f && g->hour <= 19.5f;
+                tri(m, left, tip, right, mark, mark, mark, glowing ? 6 : 0);
                 continue;
             }
             bool echo = w->place->skill == ECHO;

@@ -53,6 +53,44 @@ static void maths(const Rules *rules) {
     CLOSE(v.m[13], -2);
     CLOSE(v.m[14], -3);
 }
+static float projected(Mat m, Vec p, int row) {
+    return m.m[row] * p.x + m.m[row + 4] * p.y + m.m[row + 8] * p.z + m.m[row + 12];
+}
+static void lighting(const Rules *r) {
+    Vec morning = sun_direction(8), evening = sun_direction(16), noon = sun_direction(12);
+    CLOSE(morning.y, evening.y);
+    CLOSE(morning.x, -evening.x);
+    CLOSE(noon.y, 1);
+    CHECK(morning.x > 0 && evening.z < 0 && sun_direction(0).y < 0);
+    for (int i = 0; i < 24; i++) {
+        Vec d = sun_direction((float)i);
+        CLOSE(d.x * d.x + d.y * d.y + d.z * d.z, 1);
+    }
+    World world = {0};
+    Vec eye = {680, 55, -720}, object = {670, 51, -696};
+    Mat original = shadow_matrix(&world, eye, evening, 66, 1024);
+    float screen[3];
+    for (int axis = 0; axis < 3; axis++)
+        screen[axis] = projected(original, object, axis);
+    world.ox = WORLD_FRAME;
+    world.oz = -WORLD_FRAME;
+    eye.x -= WORLD_FRAME;
+    eye.z += WORLD_FRAME;
+    object.x -= WORLD_FRAME;
+    object.z += WORLD_FRAME;
+    Mat moved = shadow_matrix(&world, eye, evening, 66, 1024);
+    for (int axis = 0; axis < 3; axis++)
+        CLOSE(projected(moved, object, axis), screen[axis]);
+    // Light-space depth decreases towards the sun; the same ray stays on the same texel.
+    Vec closer = {object.x + evening.x * 10, object.y + evening.y * 10, object.z + evening.z * 10};
+    CLOSE(projected(moved, closer, 0), screen[0]);
+    CLOSE(projected(moved, closer, 1), screen[1]);
+    CHECK(projected(moved, closer, 2) < screen[2]);
+    Lighting earth = earth_lighting(), desert = r->places[DUNES].lighting,
+             moon = r->places[LUNAR].lighting;
+    CHECK(earth.sky.b > earth.sky.r && desert.bounce.r > 3 * desert.bounce.b);
+    CHECK(moon.sky.b < earth.sky.b * .1f && moon.clouds == 0 && moon.softness == 0);
+}
 static void position(Game *g, float x, float z) {
     Vec p = cabin_world(&g->cabin, x, 0, z);
     g->x = p.x;
@@ -64,7 +102,7 @@ static void hiking(const Rules *r) {
     CHECK(!strcmp(trail_name(&g), "Larkspur Ridge"));
     CHECK(!game_action(&g, ACT_USE));
     CHECK(!game_action(&g, ACT_HOME));
-    CHECK(!game_action(&g, (Action)45));
+    CHECK(!game_action(&g, (Action)45) && !game_action(&g, ACT_DOOR));
     game_conditions(&g, -1, 5, -2);
     CHECK(g.season == 3 && g.weather == 1);
     CLOSE(g.hour, 22);
@@ -106,9 +144,18 @@ static void hiking(const Rules *r) {
     CHECK(!g.cabin.inside && cabin_local(&g.cabin, g.x, g.z).z >= 4.20f);
     CHECK(game_action(&g, ACT_USE));
     CHECK(game_near(&g) == NEAR_ENTER);
+    CHECK(game_action(&g, ACT_DOOR) && !g.cabin.open);
+    CHECK(game_action(&g, ACT_DOOR) && g.cabin.open);
     CHECK(game_action(&g, ACT_USE));
     CHECK(g.cabin.inside && !game_action(&g, ACT_CABIN));
     CLOSE(eye(&g).y, g.cabin.y + 1.65f);
+    position(&g, 0, 3.6f);
+    CHECK(game_action(&g, ACT_DOOR) && !g.cabin.open);
+    g.yaw = g.cabin.angle + PI;
+    for (int i = 0; i < 12; i++)
+        game_tick(&g, .16f, 1, 0);
+    CHECK(g.cabin.inside && game_near(&g) == NEAR_OPEN);
+    CHECK(game_action(&g, ACT_USE) && g.cabin.open);
     position(&g, 3, 0);
     CHECK(game_near(&g) == NEAR_NONE);
     position(&g, 0, 0);
@@ -673,6 +720,11 @@ static void composition(Script *s) {
     game_action(&g, ACT_CABIN);
     landscape(&m, &s->forest, &g, 0, 0);
     cabin_mesh(&m, s, &g);
+    CHECK(m.light_count == 2);
+    Vec bedside = cabin_world(&g.cabin, -1.06f, 1.36f, -2.72f);
+    CLOSE(m.lights[0].position.x, bedside.x);
+    CLOSE(m.lights[0].position.z, bedside.z);
+    CHECK(m.lights[1].radius > 0 && m.lights[1].colour.r > m.lights[1].colour.b);
     size = m.count;
     CHECK(size > 1000);
     game_action(&g, ACT_USE);
@@ -889,6 +941,7 @@ int main(int argc, char **argv) {
     script_close(&bad);
     CHECK(script_load(&s, argv[1]));
     maths(&s.rules);
+    lighting(&s.rules);
     hiking(&s.rules);
     marked_hikes(&s.rules, argv[1]);
     endless_terrain(&s.rules);

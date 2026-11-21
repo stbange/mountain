@@ -60,8 +60,31 @@
             },
           },
         };
-        cb(now, { getViewerPose: () => pose });
         const gl = this.layer.gl;
+        const call = Module.ccall;
+        rig.shadowViews = [];
+        Module.ccall = function (name, ...args) {
+          const result = call(name, ...args);
+          if (name === "mountain_xr_eye") {
+            const program = gl.getParameter(gl.CURRENT_PROGRAM);
+            const matrices = ["u_near_light", "u_far_light"].flatMap(
+              (uniform) =>
+                Array.from(
+                  gl.getUniform(
+                    program,
+                    gl.getUniformLocation(program, uniform),
+                  ),
+                ),
+            );
+            rig.shadowViews.push(matrices);
+          }
+          return result;
+        };
+        try {
+          cb(now, { getViewerPose: () => pose });
+        } finally {
+          Module.ccall = call;
+        }
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.layer.framebuffer);
         const pixels = new Uint8Array(160 * 80 * 4);
         gl.readPixels(0, 0, 160, 80, gl.RGBA, gl.UNSIGNED_BYTE, pixels);

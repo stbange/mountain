@@ -172,6 +172,21 @@ static int read_destinations(lua_State *L) {
         d->seed = (uint32_t)luaL_checkinteger(L, -1);
         lua_pop(L, 1);
         d->datum = number(L, row, "datum", -10000, 10000);
+        d->lighting =
+            d->profile == LUNAR ? (Lighting){rgb(0x020307), rgb(0x070708), 0, 0} : earth_lighting();
+        lua_getfield(L, row, "lighting");
+        if (!lua_isnil(L, -1)) {
+            luaL_checktype(L, -1, LUA_TTABLE);
+            lua_getfield(L, -1, "sky");
+            d->lighting.sky = rgb((unsigned)luaL_checkinteger(L, -1));
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "bounce");
+            d->lighting.bounce = rgb((unsigned)luaL_checkinteger(L, -1));
+            lua_pop(L, 1);
+            d->lighting.clouds = number(L, -1, "clouds", 0, 1);
+            d->lighting.softness = number(L, -1, "softness", 0, 2);
+        }
+        lua_pop(L, 1);
         lua_getfield(L, row, "name");
         snprintf(d->name, sizeof d->name, "%s", luaL_checkstring(L, -1));
         lua_pop(L, 1);
@@ -342,6 +357,10 @@ static int emit(lua_State *L) {
     int mat = (int)luaL_optinteger(L, 8, 0);
     float turn = (float)luaL_optnumber(L, 9, 0);
     Pose local = {transform(b->pose, c), b->pose.angle + turn};
+    float radius = (float)luaL_optnumber(L, 11, 0);
+    if (radius > 0 && b->m->light_count < 4) {
+        b->m->lights[b->m->light_count++] = (struct RoomLight){local.origin, color, radius};
+    }
     tilted_box(b->m, local, (Vec){0}, size, color, (float)mat, (float)luaL_optnumber(L, 10, 0));
     return 0;
 }

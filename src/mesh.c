@@ -5,6 +5,7 @@
 
 void mesh_clear(Mesh *m) {
     m->count = 0;
+    m->light_count = 0;
     m->failed = false;
 }
 void mesh_free(Mesh *m) {
@@ -108,10 +109,8 @@ void tilted_box(Mesh *m, Pose p, Vec center, Vec size, Color color, float materi
     }
     const int faces[][4] = {{0, 1, 3, 2}, {5, 4, 6, 7}, {4, 0, 2, 6},
                             {1, 5, 7, 3}, {2, 3, 7, 6}, {4, 5, 1, 0}};
-    const float lights[] = {.86f, .96f, .78f, .88f, 1.08f, .61f};
     for (int f = 0; f < 6; f++)
-        quad(m, v[faces[f][0]], v[faces[f][1]], v[faces[f][2]], v[faces[f][3]],
-             shade(color, lights[f]), material);
+        quad(m, v[faces[f][0]], v[faces[f][1]], v[faces[f][2]], v[faces[f][3]], color, material);
 }
 void box_material(Mesh *m, Pose p, Vec center, Vec size, Color color, float material) {
     tilted_box(m, p, center, size, color, material, 0);

@@ -338,6 +338,9 @@ def test_touch(browser, url):
     assert v(page, 28) == 2
     page.tap("#cabin")
     page.tap("#use")
+    page.tap("#door")
+    assert not v(page, 10) and not v(page, 11)
+    page.tap("#use")
     page.tap("#use")
     assert v(page, 11)
     page.set_viewport_size({"width": 800, "height": 390})
@@ -346,6 +349,55 @@ def test_touch(browser, url):
     ctx.close()
     print(
         "Real browser touch movement, looking, door controls and rotation passed.",
+        flush=True,
+    )
+
+
+def test_lighting(browser, url):
+    ctx = browser.new_context(viewport={"width": 1170, "height": 740})
+    page = ctx.new_page()
+    ready(page, url)
+    page.evaluate("()=>{Module._mountain_pause(1);Module._mountain_visit(0)}")
+    trail_leg(page, 1, int(v(page, 20)) - 1)
+    # Face away from the door. It remains outside the image; only its cast shadow can reach the rug.
+    page.evaluate("""()=>{
+      const m=Module;
+      m._mountain_conditions(1,0,15.5);m._mountain_look(2.24-val(2),0);
+      m._mountain_action(1);m._mountain_action(2);m._mountain_action(2);m._mountain_action(6);
+      m._mountain_look(2.24-val(2),-.88-val(3));refresh();
+    }""")
+
+    def patch(image, left, top, right, bottom):
+        w, h = image.size
+        region = image.crop(
+            (int(left * w), int(top * h), int(right * w), int(bottom * h))
+        )
+        return ImageStat.Stat(region).mean[0]
+
+    sun = frame(page)
+    page.keyboard.press("f")
+    assert v(page, 11) and not v(page, 10)
+    shade = frame(page)
+    rug = (0.44, 0.59, 0.57, 0.83)
+    # The adjacent strip lit by the window stays bright when the door closes.
+    window = (0.075, 0.49, 0.13, 0.61)
+    assert patch(sun, *rug) > patch(shade, *rug) + 14
+    assert abs(patch(sun, *window) - patch(shade, *window)) < 7
+    page.click("#use")
+    reopened = frame(page)
+    assert abs(patch(sun, *rug) - patch(reopened, *rug)) < 2
+    page.evaluate("Module._mountain_conditions(1,0,23)")
+    night = frame(page)
+    assert patch(night, *rug) < patch(sun, *rug)
+    # With the same seed, hour, pose and simulation tick, lunar weather has no optical effect.
+    page.evaluate("()=>{Module._mountain_visit(7);Module._mountain_conditions(1,0,9)}")
+    clear = frame(page)
+    page.evaluate("Module._mountain_conditions(1,2,9)")
+    assert frame(page).tobytes() == clear.tobytes()
+    assert page.evaluate("Module.canvas.getContext('webgl2').getError()") == 0
+    ctx.close()
+    print(
+        "Sunlit rug, persistent window light, nightfall and airless lunar lighting passed.",
         flush=True,
     )
 
@@ -359,6 +411,8 @@ def test_headset(browser, url):
     page.get_by_role("button", name="Enter VR").click()
     page.wait_for_function("testHeadset.frames>=3")
     eyes = page.evaluate("testHeadset.lastEyes")
+    stereo = page.evaluate("testHeadset.shadowViews")
+    assert len(stereo) == 2 and stereo[0] == stereo[1] and any(stereo[0])
     assert eyes[0][1] > 20 and eyes[1][1] > 20 and eyes[0][0] != eyes[1][0], eyes
     assert v(page, 15) > 0
     page.evaluate(
@@ -367,6 +421,9 @@ def test_headset(browser, url):
     assert v(page, 9)
     page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
     assert v(page, 10)
+    page.evaluate("""()=>{const e=new Event('squeeze'); e.inputSource={handedness:'left'};
+        testHeadset.session.dispatchEvent(e)}""")
+    assert not v(page, 10)
     page.evaluate(
         "testHeadset.session.inputSources[0].gamepad.buttons[4]={pressed:true}"
     )
@@ -410,7 +467,7 @@ if __name__ == "__main__":
     p.add_argument("--url")
     args = p.parse_args()
     with site(args) as url, sync_playwright() as driver:
-        for playtest in (test_desktop, test_touch, test_headset):
+        for playtest in (test_desktop, test_touch, test_headset, test_lighting):
             browser = driver.chromium.launch(
                 executable_path=os.environ.get("CHROMIUM") or None,
                 args=[

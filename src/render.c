@@ -9,7 +9,7 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 /* A compositor-owned XR framebuffer has no Emscripten GLuint name.
-   Preserve its actual WebGL object while drawing the lake reflection. */
+   Preserve its actual WebGL object during offscreen rendering. */
 EM_JS(void, save_browser_target, (void),
       { Module['mountainSavedTarget'] = GLctx.getParameter(GLctx.FRAMEBUFFER_BINDING); });
 EM_JS(void, restore_browser_target, (void), {
@@ -95,14 +95,43 @@ EM_JS(void, restore_browser_target, (void), {
                                                                         X(GLenum,                  \
                                                                           CheckFramebufferStatus,  \
                                                                           (GLenum))
+#define SHADOW_FUNCTIONS(X)                                                                        \
+    X(void, DrawBuffers, (GLsizei, const GLenum *))                                                \
+    X(void, PixelStorei, (GLenum, GLint))                                                          \
+    X(void, ReadBuffer, (GLenum))                                                                  \
+    X(void, PolygonOffset, (GLfloat, GLfloat))                                                     \
+    X(void, BlitFramebuffer,                                                                       \
+      (GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum))
 #define DECL(ret, name, args) static ret(APIENTRY *q##name) args;
 FUNCTIONS(DECL)
+SHADOW_FUNCTIONS(DECL)
 typedef struct {
     GLuint id;
     GLsizei count;
 } Buffer;
+typedef struct {
+    GLuint texture;
+    Mat matrix;
+    int size;
+    bool valid;
+    Vec centre;
+    float hour;
+    double time;
+} ShadowMap;
 struct Display {
-    GLuint program, atlas, font, trail, canopy, fb, frame, depth, lake_fb, lake_tex, lake_depth;
+    GLuint shadow_program, shadow_fb, static_fb, static_depth;
+    ShadowMap shadows[2];
+    GLint shadow_vp, shadow_clock, shadow_pattern, near_light, far_light, light_params;
+    GLint sky_fill, bounce, cloud_origin, house_pass, lamps[4], lamp_colour[4];
+    int shadow_weather;
+    uint32_t shadow_notes;
+    double life_time;
+    float life_hour, life_x, life_z;
+    int life_weather;
+    uint32_t life_notes;
+    bool life_valid;
+    GLuint program, atlas, font, trail, canopy, clouds, fb, frame, depth, lake_fb, lake_tex,
+        lake_depth;
     GLint reflect, water, viewport, season_tint, trail_center, pattern, profile, liquid, soil;
     int destination;
     int trail_x, trail_z;
@@ -129,6 +158,7 @@ static bool resolve(void) {
         return false;                                                                              \
     }
     FUNCTIONS(LOAD)
+    SHADOW_FUNCTIONS(LOAD)
 #undef LOAD
     return true;
 }
@@ -138,14 +168,31 @@ static GLuint shader(GLenum type, const char *root, const char *name) {
     char *body = SDL_LoadFile(path, NULL);
     if (!body)
         return 0;
+    bool vertex = type == GL_VERTEX_SHADER;
 #ifdef __EMSCRIPTEN__
-    const char *head = "#version 100\nprecision highp float;\nprecision highp int;\n";
+    const char *head = "#version 300 es\nprecision highp float;\nprecision highp int;\n";
+    const char *syntax = vertex ? "#define IN in\n#define OUT out\n"
+                                : "#define IN in\n#define SAMPLE texture\nout vec4 "
+                                  "fragmentColour;\n#define FRAGMENT fragmentColour\n";
 #else
     const char *head = "#version 120\n";
+    const char *syntax =
+        vertex ? "#define IN attribute\n#define OUT varying\n"
+               : "#define IN varying\n#define SAMPLE texture2D\n#define FRAGMENT gl_FragColor\n";
 #endif
-    const char *parts[] = {head, body};
+    char *shared = NULL;
+    if (!vertex) {
+        snprintf(path, sizeof path, "%s/shaders/surface.glsl", root);
+        shared = SDL_LoadFile(path, NULL);
+        if (!shared) {
+            SDL_free(body);
+            return 0;
+        }
+    }
+    const char *parts[] = {head, syntax, shared ? shared : "", body};
     GLuint id = qCreateShader(type);
-    qShaderSource(id, 2, parts, NULL);
+    qShaderSource(id, 4, parts, NULL);
+    SDL_free(shared);
     qCompileShader(id);
     SDL_free(body);
     GLint ok = 0;
@@ -173,15 +220,16 @@ static GLuint texture(const char *root, const char *name) {
     if (!raw)
         return 0;
     int w = 0, h = 0;
-    if (n >= 18 && raw[2] == 2 && raw[16] == 32) {
+    bool grey = n >= 18 && raw[2] == 3 && raw[16] == 8;
+    if (n >= 18 && (grey || (raw[2] == 2 && raw[16] == 32))) {
         w = raw[12] + 256 * raw[13];
         h = raw[14] + 256 * raw[15];
     }
-    if (w == 0 || h == 0 || n - 18 != (size_t)w * h * 4) {
+    if (w == 0 || h == 0 || n - 18 != (size_t)w * h * (grey ? 1 : 4)) {
         SDL_free(raw);
         return 0;
     }
-    for (size_t i = 18; i < n; i += 4) {
+    for (size_t i = 18; !grey && i < n; i += 4) {
         unsigned char b = raw[i];
         raw[i] = raw[i + 2];
         raw[i + 2] = b;
@@ -190,7 +238,21 @@ static GLuint texture(const char *root, const char *name) {
     qGenTextures(1, &id);
     qBindTexture(GL_TEXTURE_2D, id);
     texture_settings();
-    qTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw + 18);
+    if (grey) {
+        qPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        qTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        qTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        qTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        qTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+#ifdef __EMSCRIPTEN__
+        qTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, raw + 18);
+#else
+        qTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE,
+                    raw + 18);
+#endif
+        qPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    } else
+        qTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw + 18);
     SDL_free(raw);
     return id;
 }
@@ -210,41 +272,110 @@ static void draw(Buffer b) {
     qVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, u));
     qDrawArrays(GL_TRIANGLES, 0, b.count);
 }
+static GLuint scene_program(const char *root, const char *fragment) {
+    GLuint v = shader(GL_VERTEX_SHADER, root, "ridge.vert"),
+           f = shader(GL_FRAGMENT_SHADER, root, fragment);
+    GLuint program = 0;
+    if (v && f) {
+        program = qCreateProgram();
+        qAttachShader(program, v);
+        qAttachShader(program, f);
+        qBindAttribLocation(program, 0, "a_pos");
+        qBindAttribLocation(program, 1, "a_colour");
+        qBindAttribLocation(program, 2, "a_uvm");
+        qLinkProgram(program);
+        GLint ok;
+        qGetProgramiv(program, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char msg[600];
+            qGetProgramInfoLog(program, sizeof msg, NULL, msg);
+            SDL_Log("%s: %s", fragment, msg);
+            qDeleteProgram(program);
+            program = 0;
+        }
+    }
+    if (v)
+        qDeleteShader(v);
+    if (f)
+        qDeleteShader(f);
+    return program;
+}
+static bool depth_texture(GLuint *texture, int size) {
+    qGenTextures(1, texture);
+    qBindTexture(GL_TEXTURE_2D, *texture);
+    texture_settings();
+    qTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, size, size, 0, GL_DEPTH_COMPONENT,
+                GL_UNSIGNED_INT, NULL);
+    qFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, *texture, 0);
+    return qCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+}
+static void depth_framebuffer(GLuint *framebuffer) {
+    GLenum none = GL_NONE;
+    qGenFramebuffers(1, framebuffer);
+    qBindFramebuffer(GL_FRAMEBUFFER, *framebuffer);
+    qDrawBuffers(1, &none);
+    qReadBuffer(GL_NONE);
+}
+static bool shadow_targets(Display *d) {
+    GLint limit;
+    qGetIntegerv(GL_MAX_TEXTURE_SIZE, &limit);
+    bool compact = false;
+#ifdef __EMSCRIPTEN__
+    compact = EM_ASM_INT({ return window.matchMedia("(pointer: coarse)").matches; });
+#endif
+    depth_framebuffer(&d->shadow_fb);
+    bool complete = true;
+    for (int i = 0; i < 2; i++) {
+        ShadowMap *map = &d->shadows[i];
+        int size = i ? (compact ? 768 : 1024) : (compact ? 1024 : 1536);
+        map->size = size < limit ? size : limit;
+        qActiveTexture(GL_TEXTURE4 + i);
+        complete = depth_texture(&map->texture, map->size) && complete;
+    }
+    /* Keep the near landscape depth between wildlife poses. */
+    qActiveTexture(GL_TEXTURE0);
+    depth_framebuffer(&d->static_fb);
+    complete = depth_texture(&d->static_depth, d->shadows[0].size) && complete;
+    qBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (!complete)
+        SDL_Log("Could not create sunlight depth target");
+    return complete;
+}
 Display *display_open(const char *root) {
     if (!resolve())
         return NULL;
     Display *d = calloc(1, sizeof *d);
     if (!d)
         return NULL;
-    GLuint v = shader(GL_VERTEX_SHADER, root, "ridge.vert"),
-           f = shader(GL_FRAGMENT_SHADER, root, "ridge.frag");
-    if (v && f) {
-        d->program = qCreateProgram();
-        qAttachShader(d->program, v);
-        qAttachShader(d->program, f);
-        qBindAttribLocation(d->program, 0, "a_pos");
-        qBindAttribLocation(d->program, 1, "a_colour");
-        qBindAttribLocation(d->program, 2, "a_uvm");
-        qLinkProgram(d->program);
-    }
-    if (v)
-        qDeleteShader(v);
-    if (f)
-        qDeleteShader(f);
-    GLint ok = 0;
-    if (d->program)
-        qGetProgramiv(d->program, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        if (d->program) {
-            char msg[600];
-            qGetProgramInfoLog(d->program, sizeof msg, NULL, msg);
-            SDL_Log("%s", msg);
-        }
+    d->program = scene_program(root, "ridge.frag");
+    d->shadow_program = scene_program(root, "shadow.frag");
+    if (!d->program || !d->shadow_program || !shadow_targets(d)) {
         display_close(d);
         return NULL;
     }
+    qUseProgram(d->shadow_program);
+    d->shadow_vp = qGetUniformLocation(d->shadow_program, "u_vp");
+    d->shadow_clock = qGetUniformLocation(d->shadow_program, "u_clock");
+    d->shadow_pattern = qGetUniformLocation(d->shadow_program, "u_pattern");
+    qUniform1i(qGetUniformLocation(d->shadow_program, "u_canopy"), 3);
     qUseProgram(d->program);
 #define LOC(field, name) d->field = qGetUniformLocation(d->program, "u_" name)
+    LOC(near_light, "near_light");
+    LOC(far_light, "far_light");
+    LOC(sky_fill, "sky_fill");
+    LOC(bounce, "bounce");
+    LOC(light_params, "light_params");
+    LOC(cloud_origin, "cloud_origin");
+    LOC(house_pass, "house");
+    for (int i = 0; i < 4; i++) {
+        char name[32];
+        snprintf(name, sizeof name, "u_lamps[%d]", i);
+        d->lamps[i] = qGetUniformLocation(d->program, name);
+        snprintf(name, sizeof name, "u_lamp_colour[%d]", i);
+        d->lamp_colour[i] = qGetUniformLocation(d->program, name);
+    }
+    qUniform1i(qGetUniformLocation(d->program, "u_near_depth"), 4);
+    qUniform1i(qGetUniformLocation(d->program, "u_far_depth"), 5);
     LOC(vp, "vp");
     LOC(inv, "inverse");
     LOC(eye, "eye");
@@ -269,9 +400,13 @@ Display *display_open(const char *root) {
     qUniform1i(qGetUniformLocation(d->program, "u_canopy"), 3);
     qGenTextures(1, &d->canopy);
     qGenTextures(1, &d->trail);
+    qActiveTexture(GL_TEXTURE6);
+    d->clouds = texture(root, "clouds.tga");
+    qUniform1i(qGetUniformLocation(d->program, "u_clouds"), 6);
+    qActiveTexture(GL_TEXTURE0);
     d->atlas = texture(root, "field.tga");
     d->font = texture(root, "letters.tga");
-    if (!d->atlas || !d->font) {
+    if (!d->atlas || !d->font || !d->clouds) {
         display_close(d);
         return NULL;
     }
@@ -287,9 +422,15 @@ void display_close(Display *d) {
     if (!d)
         return;
     GLuint buffers[] = {d->land.id, d->house.id, d->life.id, d->screen.id, d->hud.id};
-    GLuint tex[] = {d->atlas, d->font, d->frame, d->lake_tex, d->trail, d->canopy};
+    GLuint tex[] = {d->atlas, d->font, d->frame, d->lake_tex, d->trail, d->canopy, d->clouds};
     qDeleteBuffers(5, buffers);
-    qDeleteTextures(6, tex);
+    qDeleteTextures(7, tex);
+    for (int i = 0; i < 2; i++)
+        qDeleteTextures(1, &d->shadows[i].texture);
+    qDeleteFramebuffers(1, &d->shadow_fb);
+    qDeleteFramebuffers(1, &d->static_fb);
+    qDeleteTextures(1, &d->static_depth);
+    qDeleteProgram(d->shadow_program);
     qDeleteFramebuffers(1, &d->lake_fb);
     qDeleteRenderbuffers(1, &d->lake_depth);
     qDeleteFramebuffers(1, &d->fb);
@@ -344,6 +485,7 @@ static void scenery(Display *d, Script *s, const Game *g) {
         cz != d->cz || site) {
         landscape(&d->scratch, &s->forest, g, (float)cx, (float)cz);
         upload(&d->land, &d->scratch, GL_STATIC_DRAW);
+        d->life_valid = d->shadows[0].valid = d->shadows[1].valid = false;
         d->cx = cx;
         d->cz = cz;
         d->seed = g->world.seed;
@@ -354,14 +496,34 @@ static void scenery(Display *d, Script *s, const Game *g) {
         old->inside != c->inside || old->room != c->room) {
         cabin_mesh(&d->scratch, s, g);
         upload(&d->house, &d->scratch, GL_STATIC_DRAW);
+        d->life_valid = d->shadows[0].valid = d->shadows[1].valid = false;
+        d->lake_time = -100;
+        for (int i = 0; i < 4; i++) {
+            const struct RoomLight *lamp = &d->scratch.lights[i];
+            float radius = i < d->scratch.light_count ? lamp->radius : 0;
+            qUniform4f(d->lamps[i], lamp->position.x, lamp->position.y, lamp->position.z, radius);
+            qUniform3f(d->lamp_colour[i], lamp->colour.r, lamp->colour.g * .70f,
+                       lamp->colour.b * .40f);
+        }
     }
     d->house_in_view = house_in_view;
     d->cached = *c;
     d->ox = g->world.ox;
     d->oz = g->world.oz;
     d->valid = true;
-    wildlife(&d->scratch, s, g);
-    upload(&d->life, &d->scratch, GL_DYNAMIC_DRAW);
+    if (!d->life_valid || d->life_time != g->elapsed || d->life_hour != g->hour ||
+        d->life_x != g->x || d->life_z != g->z || d->life_weather != g->weather ||
+        d->life_notes != g->notes) {
+        wildlife(&d->scratch, s, g);
+        upload(&d->life, &d->scratch, GL_DYNAMIC_DRAW);
+        d->life_time = g->elapsed;
+        d->life_hour = g->hour;
+        d->life_x = g->x;
+        d->life_z = g->z;
+        d->life_weather = g->weather;
+        d->life_notes = g->notes;
+        d->life_valid = true;
+    }
 }
 static Mat inverse(Mat a) {
     float q[4][8];
@@ -420,6 +582,86 @@ static void outdoor(Display *d, Viewport vp) {
     draw(d->land);
     draw(d->life);
 }
+static void draw_house(Display *d) {
+    qUniform1i(d->house_pass, 1);
+    draw(d->house);
+    qUniform1i(d->house_pass, 0);
+}
+static void sunlight_maps(Display *d, const Game *g, Vec centre, Vec sun) {
+    if (sun.y <= 0)
+        return;
+    bool changed = d->shadow_notes != g->notes || d->shadow_weather != g->weather;
+    d->shadow_notes = g->notes;
+    d->shadow_weather = g->weather;
+    bool offscreen = false;
+#ifndef __EMSCRIPTEN__
+    GLint previous = 0;
+#endif
+    for (int i = 0; i < 2; i++) {
+        ShadowMap *map = &d->shadows[i];
+        float radius = i ? 1700.f : (g->cabin.inside ? 20.f : 66.f);
+        bool static_changed =
+            !map->valid || fabsf(g->hour - map->hour) >= (i ? .035f : .010f) ||
+            hypotf(centre.x - map->centre.x, centre.z - map->centre.z) >= radius * .09f ||
+            fabsf(centre.y - map->centre.y) >= radius * .09f;
+        if (!static_changed && (i || (!changed && fabs(g->elapsed - map->time) < .14)))
+            continue;
+        if (!offscreen) {
+#ifdef __EMSCRIPTEN__
+            save_browser_target();
+#else
+            qGetIntegerv(GL_FRAMEBUFFER_BINDING, &previous);
+#endif
+            offscreen = true;
+            qBindFramebuffer(GL_FRAMEBUFFER, d->shadow_fb);
+            qUseProgram(d->shadow_program);
+            qUniform3f(d->shadow_pattern, (float)(g->world.ox % 4096), 0,
+                       (float)(g->world.oz % 4096));
+            qUniform1f(d->shadow_clock, (float)g->elapsed);
+            qBindTexture(GL_TEXTURE_2D, d->atlas);
+            qEnable(GL_DEPTH_TEST);
+            qDisable(GL_SCISSOR_TEST);
+            qEnable(GL_POLYGON_OFFSET_FILL);
+            qPolygonOffset(2, 3);
+        }
+        int n = map->size;
+        qBindFramebuffer(GL_FRAMEBUFFER, d->shadow_fb);
+        qFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, map->texture, 0);
+        qViewport(0, 0, n, n);
+        if (static_changed) {
+            map->matrix = shadow_matrix(&g->world, centre, sun, radius, n);
+            qUniformMatrix4fv(d->shadow_vp, 1, GL_FALSE, map->matrix.m);
+            if (!i)
+                qBindFramebuffer(GL_FRAMEBUFFER, d->static_fb);
+            qClear(GL_DEPTH_BUFFER_BIT);
+            draw(d->land);
+            draw(d->house);
+            map->centre = centre;
+            map->hour = g->hour;
+            d->lake_time = -100;
+        }
+        if (!i) {
+            qBindFramebuffer(GL_READ_FRAMEBUFFER, d->static_fb);
+            qBindFramebuffer(GL_DRAW_FRAMEBUFFER, d->shadow_fb);
+            qBlitFramebuffer(0, 0, n, n, 0, 0, n, n, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            qUniformMatrix4fv(d->shadow_vp, 1, GL_FALSE, map->matrix.m);
+            draw(d->life);
+        }
+        map->time = g->elapsed;
+        map->valid = true;
+    }
+    if (offscreen) {
+        qDisable(GL_POLYGON_OFFSET_FILL);
+#ifdef __EMSCRIPTEN__
+        restore_browser_target();
+#else
+        qBindFramebuffer(GL_FRAMEBUFFER, (GLuint)previous);
+#endif
+        qUseProgram(d->program);
+        qUniformMatrix4fv(d->near_light, 1, GL_FALSE, d->shadows[0].matrix.m);
+        qUniformMatrix4fv(d->far_light, 1, GL_FALSE, d->shadows[1].matrix.m);
+    }
+}
 static void lake_reflection(Display *d, const Game *g, Viewport vp, Mat projection, Mat view) {
 #ifdef __EMSCRIPTEN__
     save_browser_target();
@@ -459,6 +701,8 @@ static void lake_reflection(Display *d, const Game *g, Viewport vp, Mat projecti
         qUniform1i(d->reflect, 1);
         qUniform1f(d->water, g->world.water);
         outdoor(d, (Viewport){0, 0, 240, 128});
+        if (!g->cabin.inside)
+            draw_house(d);
         d->lake_time = g->elapsed;
         d->lake_hour = g->hour;
         d->lake_seed = g->world.seed;
@@ -494,9 +738,17 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
     if (head)
         view = multiply(*head, view);
     qUseProgram(d->program);
-    float day = sunlight_factor(g->hour), warm = alpenglow(g->hour),
-          angle = (g->hour - 6) * PI / 12;
-    qUniform3f(d->sun, cosf(angle) * .82f, sinf(angle), cosf(angle) * .572f);
+    float day = sunlight_factor(g->hour), warm = alpenglow(g->hour);
+    Vec sun = sun_direction(g->hour);
+    Lighting light = g->world.place ? g->world.place->lighting : earth_lighting();
+    sunlight_maps(d, g, room_eye, sun);
+    qUniform3f(d->sun, sun.x, sun.y, sun.z);
+    qUniform3f(d->sky_fill, light.sky.r, light.sky.g, light.sky.b);
+    qUniform3f(d->bounce, light.bounce.r, light.bounce.g, light.bounce.b);
+    qUniform4f(d->light_params, light.clouds, light.softness, 1.f / d->shadows[0].size,
+               1.f / d->shadows[1].size);
+    qUniform3f(d->cloud_origin, (float)fmod(g->world.ox * (1.22 / 950.0), 256.0), 0,
+               (float)fmod(g->world.oz * (2.32 / 950.0), 256.0));
     Color hor = blend(rgb(0x243047), blend(rgb(0xf2e9ce), rgb(0xfac79d), warm), day);
     Color zen = blend(rgb(0x121c32), blend(rgb(0x689cb3), rgb(0x899daf), warm * .61f), day);
     float grey = g->weather == 2 ? .67f : (g->weather == 3 ? .45f : (g->weather == 1 ? .22f : 0));
@@ -544,7 +796,7 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
             view = multiply(*head, view);
         camera(d, p, view);
     }
-    draw(d->house);
+    draw_house(d);
     if (head)
         headset_note(d, g);
 }
@@ -597,6 +849,8 @@ static void headset_note(Display *d, const Game *g) {
         note = "Back on safe footing";
     else if (g->note_timer > 0)
         note = field_hint(g);
+    else if (nearby == NEAR_ENTER || nearby == NEAR_EXIT)
+        note = "Select to cross; left grip closes door";
     else if (nearby == NEAR_READ)
         note = "Select to read the field sign";
     else if (nearby == NEAR_TREASURE)
@@ -619,8 +873,8 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
              g->rules->seasons[g->season], weather_label(g, g->weather));
     const char *actions[] = {"WASD HIKE  /  P PHOTO  /  H CABIN  /  F1 GUIDE",
                              "E  OPEN DOOR",
-                             "E  STEP INSIDE",
-                             "E  STEP OUTSIDE",
+                             "E  STEP INSIDE  /  F  CLOSE DOOR",
+                             "E  STEP OUTSIDE  /  F  CLOSE DOOR",
                              "E  NEXT ROOM",
                              "E  PREVIOUS ROOM",
                              "E  READ FIELD SIGN",
@@ -642,7 +896,7 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
                                "WASD or arrows: hike / turn",
                                "Drag or left click: look",
                                "H: summon / dismiss cabin",
-                               "E: use a door or field sign",
+                               "E: use   F: open / close front door",
                                "R: return to hearth room",
                                "T: time   Y: season   U: weather",
                                "I: cycle seasons   O: weather changes",

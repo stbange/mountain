@@ -80,12 +80,17 @@ typedef struct Mesh Mesh;
 #define SUMMIT_POINTS 23
 #define REALM_POINTS 15
 typedef struct {
+    Color sky, bounce;
+    float clouds, softness;
+} Lighting;
+typedef struct {
     Profile profile;
     FieldSkill skill;
     uint32_t seed;
     float datum;
     char name[48], region[48], stops[2][36], signs[3][44], notes[3][144];
     Color colours[6];
+    Lighting lighting;
     Mesh *art;
 } Destination;
 typedef struct {
@@ -162,7 +167,8 @@ typedef enum {
     ACT_WEATHER,
     ACT_HOME,
     ACT_CYCLE_SEASONS,
-    ACT_CHANGING_WEATHER
+    ACT_CHANGING_WEATHER,
+    ACT_DOOR
 } Action;
 typedef enum {
     NEAR_NONE,
@@ -253,6 +259,12 @@ struct Mesh {
     Vertex *v;
     size_t count, capacity;
     bool failed;
+    int light_count;
+    struct RoomLight {
+        Vec position;
+        Color colour;
+        float radius;
+    } lights[4];
 };
 typedef enum { DEER, FOX, HARE, MARMOT, EAGLE } AnimalKind;
 typedef struct {
@@ -284,6 +296,9 @@ Mat identity(void);
 Mat multiply(Mat a, Mat b);
 Mat view_matrix(Vec pos, float yaw, float pitch);
 Mat perspective(float fovy, float aspect, float near_z, float far_z);
+Lighting earth_lighting(void);
+Vec sun_direction(float hour);
+Mat shadow_matrix(const World *world, Vec eye, Vec sun, float radius, int resolution);
 
 typedef struct {
     Mesh close[TREE_FORMS], middle[TREE_FORMS];

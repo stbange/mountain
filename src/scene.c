@@ -6,7 +6,7 @@ typedef struct {
     Vec p;
     float patch;
 } Sample;
-static Color terrain_colour(const Game *g, Sample v, float ny, float light) {
+static Color terrain_colour(const Game *g, Sample v, float ny) {
     float y = v.p.y;
     if (g->world.profile > SURVEYED) {
         const Destination *d = g->world.place;
@@ -24,7 +24,7 @@ static Color terrain_colour(const Game *g, Sample v, float ny, float light) {
         }
         if (d->profile == BASALT && g->season == 3)
             c = blend(c, rgb(0xc8cfd1), smooth(35, 85, y) * .72f);
-        return shade(c, light);
+        return c;
     }
     Color meadow = g->rules->meadow[g->season], forest = g->rules->forest[g->season];
     float cover = smooth(.24f, .8f, v.patch);
@@ -35,11 +35,11 @@ static Color terrain_colour(const Game *g, Sample v, float ny, float light) {
     float snowline = (g->season == 3 ? 10.f : (g->season == 0 ? 91.f : 119.f));
     float snow = smooth(snowline, snowline + 19, y + (ny - .6f) * 77 + (v.patch - .5f) * 44);
     snow *= .15f + .85f * smooth(.24f, .79f, ny + (v.patch - .5f) * .22f);
-    Color ice = blend(rgb(0x92acc5), rgb(0xfff5e2), smooth(.63f, 1.05f, light));
+    Color ice = blend(rgb(0xcfdae0), rgb(0xfff5e2), v.patch);
     col = blend(col, ice, snow);
     if (y < water_at(&g->world, v.p.x, v.p.z) + 2.8f)
         col = blend(col, rgb(0xb1a785), .6f);
-    return shade(col, light);
+    return col;
 }
 static void facet(Mesh *m, const Game *g, Sample a, Sample b, Sample c) {
     float ux = b.p.x - a.p.x, uy = b.p.y - a.p.y, uz = b.p.z - a.p.z;
@@ -49,10 +49,9 @@ static void facet(Mesh *m, const Game *g, Sample a, Sample b, Sample c) {
     nx *= inv;
     ny *= inv;
     nz *= inv;
-    float lit = clampf(.65f + .49f * (-.78f * nx + .51f * ny + .32f * nz), .48f, 1.14f);
     size_t first = m->count;
-    tri(m, a.p, b.p, c.p, terrain_colour(g, a, ny, lit), terrain_colour(g, b, ny, lit),
-        terrain_colour(g, c, ny, lit), 4);
+    tri(m, a.p, b.p, c.p, terrain_colour(g, a, ny), terrain_colour(g, b, ny),
+        terrain_colour(g, c, ny), 4);
     for (size_t i = first; i < m->count; i++) {
         m->v[i].u = nx;
         m->v[i].v = nz;
@@ -130,7 +129,7 @@ static void stone(Mesh *m, float x, float y, float z, float r, uint32_t seed) {
     }
     for (int i = 0; i < 7; i++) {
         int j = (i + 1) % 7;
-        float light = .82f - .24f * cosf(i * 2 * PI / 7);
+        float light = .91f + .09f * random2(i, 3, seed);
         quad(m, bottom[i], bottom[j], ring[j], ring[i], shade(stone, light), 0);
         Color c = shade(moss, light * 1.12f);
         tri(m, ring[i], ring[j], top, c, c, c, 0);
@@ -455,7 +454,7 @@ void cabin_mesh(Mesh *m, Script *s, const Game *g) {
             script_room(s, m, p, index + 1, true, false);
         if (index > 0) {
             p.origin = cabin_world(c, 0, 0, 8.16f);
-            script_room(s, m, p, index - 1, true, index == 1);
+            script_room(s, m, p, index - 1, c->open, index == 1);
         }
     }
 }

@@ -49,7 +49,9 @@ Open **Season & weather** or click the season beside your elevation. Pick spring
 
 Firs, spruce, larches and aspens grow from seeded voxel trunks and branches. Larch and aspen turn gold in autumn and lose their foliage in winter. Watch for mule deer at meadow edges, red foxes and snowshoe hares under cover, yellow-bellied marmots on rocky slopes, and golden eagles circling above. Hares turn white in winter and marmots hibernate. On the web, **Field guide** lists the species near your current position.
 
-**Summon cabin** places a furnished lodge ahead. Its footings follow the slope. In a grove, a mature tree at the edge of the floor can carry the platform. Open the front door to see the Hearth Room, then walk through. The door at the far end leads to another room. Rooms are regenerated from their index as you move. Their windows look back onto the current mountain. Walk back the way you came, or use **R** to return to the entrance. Step outside to dismiss the house.
+Ridges cast broad shadows and the gaps between fir branches let sunlight reach the trail. Clouds move across the sky and the ground together. At Erg Chebbi, sand lends shaded slopes an amber cast. On the Moon, crater rims cast sharply defined shadows.
+
+**Summon cabin** places a furnished lodge ahead. Its footings follow the slope. In a grove, a mature tree at the edge of the floor can carry the platform. Open the front door to see the Hearth Room, then walk through. The door at the far end leads to another room. Rooms are regenerated from their index as you move. Their windows look back onto the current mountain. Walk back the way you came, or use **R** to return to the entrance. At the entrance, close the front door to shade the rug. The windows still admit sunlight, and the bedside lamp and stove light the furnishings after dusk. Step outside to dismiss the house.
 
 **Camera** opens the viewfinder. Take a photograph, then open **Photo journal** to view it or download its PNG. The browser keeps photographs in IndexedDB on that browser and device. Native photographs are lossless BMPs in the SDL user preference directory for Mountain. The window title and console show the saved path.
 
@@ -59,6 +61,7 @@ Firs, spruce, larches and aspens grow from seeded voxel trunks and branches. Lar
 | Look | Drag the web view or use left/right arrows. On native, click to capture the mouse and Esc to release it. | Drag the landscape |
 | Summon or dismiss the cabin outdoors | H | Cabin button |
 | Open a door or cross the nearby threshold | E or walk through an open door | Door prompt or thumb pad |
+| Close or reopen the front door from either side | F near the entrance | Close door or Open door |
 | Return to the Hearth Room | R while indoors | Hearth room button |
 | Photograph | P. On web, C opens the viewfinder. | Camera, then Take photo |
 | Sound | M | Speaker button |
@@ -66,7 +69,7 @@ Firs, spruce, larches and aspens grow from seeded voxel trunks and branches. Lar
 | Conditions | V opens the web panel. Y changes season, U changes weather and T advances the hour. Native I toggles seasonal cycling and O toggles changing weather. | Season & weather |
 | Destination | Trail map on web. On native, B opens Taggart Lake and N generates a new mountain. | Trail map |
 
-On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to read a sign or use a door, and squeeze to summon or dismiss outdoors. On controllers with X and Y face buttons, X changes season and Y changes weather. The right secondary face button advances the time of day for dusk clues. WebXR requires HTTPS or localhost.
+On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to read a sign or use a door, and squeeze to summon or dismiss outdoors. Beside the front door the left grip opens or closes it. On controllers with X and Y face buttons, X changes season and Y changes weather. The right secondary face button advances the time of day for dusk clues. WebXR requires HTTPS or localhost.
 
 ## Build
 
@@ -103,13 +106,13 @@ Open http://localhost:8000/. Serve the entire directory. The loader reads the ma
 | src/app.c and web/ | SDL input, sound and photos, browser controls, journal and WebXR |
 | assets/scripts/world.lua | Starting trail, relief, water, pace, clock, names, tree branching shapes and seasonal palettes |
 | assets/scripts/wildlife.lua | Animal anatomy, coats, gait, posture and wing animation |
-| assets/scripts/destinations.lua and assets/scripts/landmarks.lua | Atlas entries, discovery text, profile palettes and landmark shape builders |
+| assets/scripts/destinations.lua and assets/scripts/landmarks.lua | Atlas entries, discovery text, profile palettes, lighting settings and landmark shape builders |
 | assets/scripts/cabin.lua | Floor plans, window openings, furniture, fixtures, materials and room titles |
 | assets/art, assets/shaders and assets/sound | Original bitmap art, GLSL and loopable PCM ambience |
 
 To reproduce the Taggart Lake terrain asset, run `python tools/prepare_taggart.py USGS_1_n44w111.tif assets/terrain/taggart.mht` with Pillow installed. The input tile used for this release has SHA-256 `ec3e6b490cdd5035af94952a0d6b4415c42b15da6a85ebeae75edaeb51c9afe5`. The preparation tool records the trailhead coordinates and samples a 40-metre grid.
 
-Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw and optional roof tilt. Room zero is the main cabin. The renderer holds the active room and its immediate neighbours, so memory usage stays bounded as the hiker explores. Destination slots in destinations.lua identify saved journal entries. Append slots to extend a content pack. A destination selects a C terrain profile and a field skill. Its Lua artwork uses tapered strokes to construct scenery and relics, and the atlas photography lives in web/ui/atlas/.
+Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw, optional roof tilt and an optional light radius in metres. Material 7 marks a glowing fixture. The renderer takes up to four local lights, starting with the active room. Room zero is the main cabin. The renderer holds the active room and its immediate neighbours, so memory usage stays bounded as the hiker explores. Destination slots in destinations.lua identify saved journal entries. Append slots to extend a content pack. A destination selects a C terrain profile and a field skill. Its lighting table sets sky and ground-bounce RGB intensities, cloud influence from 0 to 1, and shadow softness from 0 (sharp) to 2. Its Lua artwork uses tapered strokes to construct scenery and relics, and the atlas photography lives in web/ui/atlas/.
 
 ## Specifications and tests
 

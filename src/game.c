@@ -84,7 +84,7 @@ Interaction game_near(const Game *g) {
         if (p.z < -1.7f)
             return NEAR_NEXT;
         if (p.z > 1.7f)
-            return c->room == 0 ? NEAR_EXIT : NEAR_BACK;
+            return c->room ? NEAR_BACK : (c->open ? NEAR_EXIT : NEAR_OPEN);
         return NEAR_NONE;
     }
     if (fabsf(p.x) > 2.1f || p.z < 3.65f || p.z > 11.35f)
@@ -147,7 +147,7 @@ static void grove_support(Game *g) {
 }
 bool game_action(Game *g, Action action) {
     Cabin *c = &g->cabin;
-    if (g->fall_time > 0 && (action == ACT_CABIN || action == ACT_USE))
+    if (g->fall_time > 0 && (action == ACT_CABIN || action == ACT_USE || action == ACT_DOOR))
         return false;
     switch (action) {
     case ACT_CABIN:
@@ -170,6 +170,13 @@ bool game_action(Game *g, Action action) {
         }
         grove_support(g);
         return true;
+    case ACT_DOOR: {
+        Interaction near = game_near(g);
+        if (near != NEAR_OPEN && near != NEAR_ENTER && near != NEAR_EXIT)
+            return false;
+        c->open = !c->open;
+        return true;
+    }
     case ACT_USE: {
         Interaction action_here = game_near(g);
         if (action_here == NEAR_READ || action_here == NEAR_TREASURE)
@@ -216,11 +223,13 @@ static void move(Game *g, float x, float z) {
                 cross_door(g, NEAR_NEXT);
                 return;
             }
-            if (gap && p.z >= 3.85f) {
+            if (gap && p.z >= 3.85f && (c->room || c->open)) {
                 cross_door(g, c->room ? NEAR_BACK : NEAR_EXIT);
                 return;
             }
             p.x = clampf(p.x, -4.05f, 4.05f);
+            if (gap && !c->room && !c->open)
+                p.z = fminf(p.z, 3.7f);
             if (!gap)
                 p.z = clampf(p.z, -3.65f, 3.65f);
             Vec v = cabin_world(c, p.x, 0, p.z);

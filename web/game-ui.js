@@ -119,6 +119,7 @@ function refresh() {
           ? "moon"
           : "sun");
   $("use").hidden = !use || state.camera;
+  $("door").hidden = state.camera || ![2, 3].includes(val(13));
   $("use").querySelector("span").textContent =
     val(13) >= 6 ? use + " · " + nameOf(10) : use;
   $("cabin").querySelector("span").textContent = inside
@@ -690,6 +691,7 @@ function guide() {
         ["Look around", "Drag the view · ← →"],
         ["Summon or dismiss cabin", "H · outdoors"],
         ["Use a door or read a field sign", "E · beside it"],
+        ["Open or close the front door", "F · beside it"],
         ["Return to the hearth room", "R · indoors"],
         ["Camera / take photograph", "C / P"],
         ["Season and weather", "Click the sky control or press V"],
@@ -908,6 +910,7 @@ $("leave-camera").onclick = () => mode(false);
 $("shutter").onclick = capture;
 $("cabin").onclick = cabin;
 $("use").onclick = () => act(2);
+$("door").onclick = () => act(9);
 $("sound").onclick = () => {
   if (state.ready) {
     Module._mountain_sound();
@@ -966,6 +969,7 @@ window.addEventListener("keydown", (e) => {
   const actions = {
     h: () => act(1),
     e: () => act(2),
+    f: () => act(9),
     r: () => act(6),
     c: () => mode(!state.camera),
     p: capture,

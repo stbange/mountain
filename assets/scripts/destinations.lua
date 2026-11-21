@@ -1,8 +1,23 @@
 -- The slot is the stable field-journal ID. Elevations are expressed in game metres above the local datum.
 -- Colours are ground, shade, rock, landmark accent, high sky and liquid.
+-- Sky and bounce are diffuse light intensities (RGB). Clouds range from 0 to 1.
+local alpine = {sky=0x58769f, bounce=0x181a16, clouds=1, softness=1}
+local light = {
+  alpine=alpine, survey=alpine,
+  coast={sky=0x66889f, bounce=0x38362d, clouds=.85, softness=.85},
+  dunes={sky=0x5d6876, bounce=0x663612, clouds=.40, softness=.72},
+  basalt={sky=0x667c91, bounce=0x111518, clouds=1, softness=1.3},
+  mesa={sky=0x647691, bounce=0x512a1a, clouds=.72, softness=.85},
+  karst={sky=0x697f85, bounce=0x20321d, clouds=1, softness=1.4},
+  lunar={sky=0x020307, bounce=0x070708, clouds=0, softness=0},
+  prism={sky=0x6f5595, bounce=0x193c43, clouds=.65, softness=.55},
+  fungal={sky=0x526080, bounce=0x194237, clouds=.9, softness=1.6},
+  reefs={sky=0x598a99, bounce=0x385153, clouds=.83, softness=1.25},
+  cinder={sky=0x715365, bounce=0x53251a, clouds=.72, softness=.7}
+}
 local function place(profile, name, region, seed, datum, colours, stops, discovery)
   return {profile=profile, name=name, region=region, seed=seed, datum=datum,
-          colours=colours, stops=stops, discovery=discovery}
+          colours=colours, lighting=light[profile], stops=stops, discovery=discovery}
 end
 -- A discovery specifies the field skill, first landmark, second landmark, treasure and three field notes.
 return {
@@ -11,13 +26,13 @@ return {
     {"align","Split cairn","Pass needles","The Sunwheel","Look for three pale stones beside the ridge fork.","The split stones point uphill. Follow the blue and white blazes to the notched pass.","Sight between the brass needles toward the final snow crest."}),
   place("survey","Taggart Lake","Wyoming",1872,0,
     {0xa8ad69,0x567253,0x81868a,0xefbb86,0x689cb3,0x377a80},{"Lakeside View","Ridge Lookout"},
-    {"dusk","Glacial erratic","Amber dial","The Teton Alpenglass","Look for amber flakes beside the first part of the trail.","Flakes lead to the lakeside dial. Its west face catches the last sun.","In the evening, read the dial and follow its shadow marks to the lookout."}),
+    {"dusk","Glacial erratic","Amber dial","The Teton Alpenglass","Look for amber flakes beside the first part of the trail.","Flakes lead to the lakeside dial. Its west face catches the last sun.","In the evening, read the dial and follow its engraved bearing to the lookout."}),
   place("coast","Sarakiniko","Milos, Greece",23001,0,
     {0xefead9,0xc9c4ab,0xe2d7c6,0xf3b285,0x5aabd0,0x27acb9},{"Shell Cove","Chalk Headland"},
     {"align","Spiral shells","Twin shell fans","The Nautilus Orrery","A spiral of peach shells lies beside the chalk path.","Each shell opens toward the next headland. Find the twin fans above the surf.","Look through the fans in the direction their tips point."}),
   place("dunes","Erg Chebbi","Sahara, Morocco",23002,730,
     {0xe4ae62,0xc17c41,0xd19450,0x7db797,0x79b0be,0x428c7e},{"Date Palm Spring","Dune Saddle"},
-    {"dusk","Reed bundle","Desert sundial","The Caravans' Star","Reeds tied beside the track have salt on just one side.","Follow the leaning reeds past the palms to a low stone dial.","Read the long evening shadow. The star rests on dry ground beyond the spring."}),
+    {"dusk","Reed bundle","Desert sundial","The Caravans' Star","Reeds tied beside the track have salt on just one side.","Follow the leaning reeds past the palms to a low stone dial.","At dusk, read the dial's bronze bearing. The star rests on dry ground beyond the spring."}),
   place("basalt","Reynisfjara","South Iceland",23003,0,
     {0x585b60,0x353e43,0x626d72,0x80d4d2,0x7c9eaf,0x407886},{"Column Beach","Sea Stack View"},
     {"echo","Basalt chimes","Organ pipes","The Basalt Bell","Three loose basalt columns stand apart on the black sand.","The columns rise in order toward a cluster of hollow pipes.","Sound the three pipes from lowest to highest. Their last note points inland."}),

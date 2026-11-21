@@ -394,5 +394,37 @@ def sound():
         f.writeframes((track * 32767).astype("<i2").tobytes())
 
 
+def cloud_deck():
+    """A tileable density field shared by the visible clouds and their ground shadows."""
+    import numpy as np
+
+    side, period = 512, 16
+    y, x = (np.indices((side, side), dtype=np.float32) + 0.5) * (period / side)
+    density = np.zeros((side, side), dtype=np.float32)
+    for freq, shift, weight in [
+        (1, 0, 0.55),
+        (2, 7, 0.27),
+        (4, -4, 0.12),
+        (8, 0, 0.06),
+    ]:
+        n = freq * period
+        cy, cx = np.indices((n, n), dtype=np.float32)
+        a, b, c = (cx * 0.1031) % 1, (cy * 0.1030) % 1, (cx * 0.0973) % 1
+        dot = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33)
+        grid = ((a + b + 2 * dot) * (c + dot)) % 1
+        u, v = (x * freq + shift) % n, (y * freq + shift) % n
+        i, j = u.astype(int), v.astype(int)
+        u, v = u - i, v - j
+        u, v = u * u * (3 - 2 * u), v * v * (3 - 2 * v)
+        rows = grid[j, i] * (1 - u) + grid[j, (i + 1) % n] * u
+        next_rows = grid[(j + 1) % n, i] * (1 - u) + grid[(j + 1) % n, (i + 1) % n] * u
+        density += weight * (rows * (1 - v) + next_rows * v)
+    header = struct.pack("<BBB9xHHBB", 0, 0, 3, side, side, 8, 0)
+    (ROOT / "art" / "clouds.tga").write_bytes(
+        header + (density * 255 + 0.5).astype("uint8").tobytes()
+    )
+
+
 if __name__ == "__main__":
+    cloud_deck()
     sound()

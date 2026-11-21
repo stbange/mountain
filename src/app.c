@@ -428,6 +428,9 @@ static void key(SDL_Keycode k) {
     case SDLK_E:
         mountain_action(ACT_USE);
         break;
+    case SDLK_F:
+        mountain_action(ACT_DOOR);
+        break;
     case SDLK_R:
         mountain_action(ACT_HOME);
         break;
