@@ -4,10 +4,18 @@
   "assets/art/field.tga",
   "assets/art/letters.tga",
   "assets/scripts/cabin.lua",
+  "assets/scripts/destinations.lua",
+  "assets/scripts/landmarks.lua",
   "assets/scripts/wildlife.lua",
   "assets/scripts/world.lua",
   "assets/shaders/ridge.frag",
   "assets/shaders/ridge.vert",
+  "assets/sound/chime-0.wav",
+  "assets/sound/chime-1.wav",
+  "assets/sound/chime-2.wav",
+  "assets/sound/resonance.wav",
   "assets/sound/ridge.wav",
+  "assets/sound/surf.wav",
+  "assets/sound/wind.wav",
   "assets/terrain/taggart.mht"
 ]

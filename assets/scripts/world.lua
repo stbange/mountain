@@ -9,6 +9,7 @@ return {
              "Larkspur Ridge", "Cloudberry Tarn", "Silver Fir Pass", "Wren Peak" },
   seasons = { "Spring", "Summer", "Autumn", "Winter" },
   skies = { "Clear", "Cloudy", "Rain", "Mist" },
+  destination_file = "destinations.lua",
   fauna_script = "wildlife.lua",
   fauna_names = { "Mule deer", "Red fox", "Snowshoe hare", "Yellow-bellied marmot", "Golden eagle" },
   -- Subalpine fir, spruce, larch and aspen.

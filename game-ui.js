@@ -28,6 +28,8 @@ const near = [
   "Step outside",
   "Next room",
   "Previous room",
+  "Read field sign",
+  "Discover treasure",
 ];
 function notice(message) {
   clearTimeout(state.toastTimer);
@@ -35,7 +37,7 @@ function notice(message) {
   $("toast").classList.add("shown");
   state.toastTimer = setTimeout(
     () => $("toast").classList.remove("shown"),
-    3100,
+    Math.max(3100, Math.min(8500, message.length * 55)),
   );
 }
 function timeText(hour) {
@@ -89,22 +91,36 @@ function refresh() {
   $("location").textContent = inside ? nameOf(3) : nameOf(0);
   $("biome").textContent = inside
     ? "Cabin · Room " + (val(12) + 1)
-    : val(25) && val(7) === val(23)
-      ? nameOf(5) + " · Alpine trail"
-      : "Alpine trail";
+    : val(36) > 1
+      ? nameOf(9)
+      : val(36) === 1
+        ? nameOf(5) + " · Alpine trail"
+        : "Alpine trail";
+  const hazard = val(33);
+  $("footing").hidden = !hazard || state.camera || Boolean(inside);
+  const warning = [
+    "",
+    "Exposed edge · watch your footing",
+    "Slipping",
+    "Back on safe footing",
+  ][hazard];
+  if ($("footing").textContent !== warning) $("footing").textContent = warning;
   $("height").textContent = Math.round(val(8)).toLocaleString() + " m";
   $("season").textContent = nameOf(1);
   $("clock").textContent = timeText(h);
   $("skies").textContent = nameOf(2);
   $("sky-icon").className =
     "icon i-" +
-    (weather
-      ? ["sun", "cloud", "rain", "mist"][weather]
-      : h < 6 || h >= 19
-        ? "moon"
-        : "sun");
+    (val(36) === 7
+      ? "moon"
+      : weather
+        ? ["sun", "cloud", "rain", "mist"][weather]
+        : h < 6 || h >= 19
+          ? "moon"
+          : "sun");
   $("use").hidden = !use || state.camera;
-  $("use").querySelector("span").textContent = use;
+  $("use").querySelector("span").textContent =
+    val(13) >= 6 ? use + " · " + nameOf(10) : use;
   $("cabin").querySelector("span").textContent = inside
     ? "Hearth room"
     : val(9)
@@ -138,7 +154,9 @@ function stop() {
 }
 function act(action) {
   if (!state.ready) return;
+  const reading = action === 2 && val(13) >= 6;
   const result = Module._mountain_action(action);
+  if (reading) notice(nameOf(8));
   if (action === 1 && result)
     notice(val(9) ? "Your cabin is here." : "Cabin dismissed.");
   refresh();
@@ -245,17 +263,21 @@ function conditions() {
   choose(content, "Season", options(0, 4), val(5), (i) => {
     Module._mountain_select(0, i);
     cycle.checked = false;
-    weatherGroup.children[2].textContent = options(1, 4)[2];
+    if (weatherGroup) weatherGroup.children[2].textContent = options(1, 4)[2];
   });
   const cycle = modeControl("Cycle through seasons", 18, 7);
-  choose(content, "Weather", options(1, 4), val(6), (i) => {
-    Module._mountain_select(1, i);
-    changing.checked = false;
-  });
+  if (val(36) !== 7)
+    choose(content, "Weather", options(1, 4), val(6), (i) => {
+      Module._mountain_select(1, i);
+      changing.checked = false;
+    });
   const weatherGroup = content.querySelector(
     '[role="group"][aria-label="Weather"]',
   );
-  const changing = modeControl("Let the weather change", 19, 8);
+  const changing =
+    val(36) !== 7 ? modeControl("Let the weather change", 19, 8) : null;
+  if (!changing)
+    content.append(el("p", "Mare Imbrium has an airless sky.", "note"));
   const field = el("div", null, "field"),
     top = el("div", null, "spread"),
     l = el("label", "Time of day");
@@ -290,7 +312,7 @@ function conditions() {
     },
   );
 }
-function topography(map) {
+function topography(map, showSummit = false) {
   const ctx = map.getContext("2d"),
     w = map.width,
     h = map.height,
@@ -311,7 +333,15 @@ function topography(map) {
     Module._mountain_extension(first + j, 0),
     Module._mountain_extension(first + j, 1),
   ]);
-  const coordinates = nearOpening ? [...trail, ...onward, hiker] : [hiker],
+  const ascent = Array.from({ length: val(31) }, (_, i) => [
+    Module._mountain_ascent(i, 0),
+    Module._mountain_ascent(i, 1),
+  ]);
+  const coordinates = showSummit
+      ? [...ascent, ...trail]
+      : nearOpening
+        ? [...trail, ...onward, hiker]
+        : [hiker],
     xs = coordinates.map((p) => p[0]),
     zs = coordinates.map((p) => p[1]);
   const minX = Math.min(...xs),
@@ -386,7 +416,7 @@ function topography(map) {
     ((z - oz) / step) * sy + h / 2,
   ];
   ctx.lineJoin = ctx.lineCap = "round";
-  const drawPath = (line) => {
+  const drawPath = (line, colour = "#a14e33") => {
     ctx.beginPath();
     line
       .map(project)
@@ -395,13 +425,36 @@ function topography(map) {
     ctx.strokeStyle = "#fff4d8";
     ctx.stroke();
     ctx.lineWidth = 2.7;
-    ctx.strokeStyle = "#a14e33";
+    ctx.strokeStyle = colour;
     ctx.stroke();
   };
   if (val(27) < 600) drawPath(trail);
   if (onward.length > 1) drawPath(onward);
+  if (ascent.length) {
+    drawPath(ascent, "#5d677f");
+    for (const [point, title] of [
+      [ascent[val(32)], "High Pass"],
+      [ascent.at(-1), "Snow Summit"],
+    ]) {
+      const [x, y] = project(point);
+      if (x < 7 || y < 10 || x > w - 8 || y > h - 8) continue;
+      ctx.fillStyle = "#444e68";
+      ctx.beginPath();
+      ctx.moveTo(x, y - 6);
+      ctx.lineTo(x + 6, y + 4);
+      ctx.lineTo(x - 6, y + 4);
+      ctx.closePath();
+      ctx.fill();
+      if (showSummit) {
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = x > w - 95 ? "right" : "left";
+        ctx.fillText(title, x + (x > w - 95 ? -9 : 9), y + 3);
+        ctx.textAlign = "left";
+      }
+    }
+  }
   if (!nearOpening && onward.length) {
-    const nearest = [...trail, ...onward].reduce((a, b) =>
+    const nearest = [...trail, ...onward, ...ascent].reduce((a, b) =>
       Math.hypot(b[0] - hiker[0], b[1] - hiker[1]) <
       Math.hypot(a[0] - hiker[0], a[1] - hiker[1])
         ? b
@@ -474,14 +527,39 @@ function trailMap() {
     "aria-label",
     "Contour map of your position, nearby viewpoints and the continuing trail",
   );
-  content.append(map);
+  const navigation = el("div", null, "atlas-nav");
+  if (val(29))
+    navigation.append(button("Choose a destination", "action", atlas, "map"));
+  if (val(31)) {
+    let overview = false;
+    const toggle = button(
+      "Summit route",
+      "action",
+      () => {
+        overview = !overview;
+        topography(map, overview);
+        toggle.textContent = overview ? "Local map" : "Summit route";
+      },
+      "compass",
+    );
+    navigation.append(toggle);
+  }
+  content.append(navigation, map);
   topography(map);
   content.append(
     el(
       "p",
-      val(27) < 285
-        ? "① Lakeside View　 ② Ridge Lookout · Trail continues beyond the cairn"
-        : "Endless trail · Follow the blazes between cairns",
+      val(37)
+        ? "Summit route · Blue and white blazes to High Pass and Snow Summit"
+        : val(27) < 285
+          ? "① " +
+            nameOf(6) +
+            "　 ② " +
+            nameOf(7) +
+            (val(31)
+              ? " · Summit path branches at the second cairn"
+              : " · Trail continues beyond the cairn")
+          : "Endless trail · Follow the blazes between cairns",
       "route-legend",
     ),
   );
@@ -508,8 +586,9 @@ function trailMap() {
   row.append(input, load);
   form.append(label, row);
   content.append(form);
-  const start = (seed) => {
-    Module._mountain_seed(seed);
+  const start = (seed, variant = false) => {
+    if (variant) Module._mountain_variant(seed);
+    else Module._mountain_seed(seed);
     mode(false);
     closeSheet();
     refresh();
@@ -517,7 +596,7 @@ function trailMap() {
   };
   form.onsubmit = (e) => {
     e.preventDefault();
-    if (form.reportValidity()) start(Number(input.value));
+    if (form.reportValidity()) start(Number(input.value), true);
   };
   const destinations = el("div", null, "map-destinations");
   if (val(25))
@@ -532,15 +611,67 @@ function trailMap() {
   content.append(destinations);
   destinations.append(
     button(
-      "Generate a new mountain",
+      val(36) <= 1 ? "Generate a new mountain" : "Generate a new trail here",
       "action primary",
-      () => start(crypto.getRandomValues(new Uint32Array(1))[0]),
+      () => start(crypto.getRandomValues(new Uint32Array(1))[0], true),
       "shuffle",
     ),
   );
 }
+const entry = (id, field) =>
+  Module.ccall("mountain_entry", "string", ["number", "number"], [id, field]);
+function visit(id) {
+  if (!Module._mountain_visit(id)) return;
+  mode(false);
+  closeSheet();
+  refresh();
+  notice("Arrived at " + nameOf(0) + ".");
+}
+function atlas() {
+  if (!openSheet("Destinations", "Trail atlas", true)) return;
+  for (const title of ["Earth", "Beyond Earth"]) {
+    const section = el("section", null, "atlas-section");
+    section.append(el("h3", title));
+    const grid = el("div", null, "atlas-grid");
+    for (let i = 0; i < val(29); i++) {
+      if (entry(i, 3) !== title) continue;
+      const name = entry(i, 0),
+        region = entry(i, 1),
+        card = button("", "atlas-card", () => visit(i));
+      card.setAttribute("aria-label", name + " · " + region);
+      if (i === val(28)) card.setAttribute("aria-current", "location");
+      const photo = el("img", null);
+      photo.src = "ui/atlas/" + i + ".webp";
+      photo.alt = "";
+      photo.width = 300;
+      photo.height = 150;
+      const words = el("span", null);
+      words.append(el("strong", name), el("small", region));
+      card.append(photo, words);
+      grid.append(card);
+    }
+    section.append(grid);
+    content.append(section);
+  }
+}
 function guide() {
   if (!openSheet("Field guide", "Trail controls")) return;
+  if (val(29)) {
+    const notes = el("section", null, "expedition-note");
+    notes.append(
+      el("h3", val(30) === 3 ? "Discovery recorded" : "Field discovery"),
+      el("p", nameOf(8)),
+    );
+    if (val(30) === 1) notes.append(el("p", nameOf(11), "note"));
+    const found = [];
+    for (let i = 0; i < val(29); i++)
+      if (((val(34) >>> (i * 2)) & 3) === 3) found.push(entry(i, 2));
+    if (found.length)
+      notes.append(
+        el("span", "Treasures found · " + found.join(" · "), "note"),
+      );
+    content.append(notes);
+  }
   const touch = matchMedia("(pointer:coarse)").matches;
   const entries = touch
     ? [
@@ -548,14 +679,17 @@ function guide() {
         ["Season and weather", "Tap the sky control"],
         ["Look around", "Drag the landscape"],
         ["Call your cabin", "Summon cabin in the trail kit"],
-        ["Enter or explore rooms", "Tap the door prompt"],
+        [
+          "Use a door or read a field sign",
+          "Tap the nearby interaction prompt",
+        ],
         ["Photograph a view", "Camera → Take photo"],
       ]
     : [
         ["Walk", "W A S D · ↑ ↓"],
         ["Look around", "Drag the view · ← →"],
         ["Summon or dismiss cabin", "H · outdoors"],
-        ["Open a door or cross it", "E · near a doorway"],
+        ["Use a door or read a field sign", "E · beside it"],
         ["Return to the hearth room", "R · indoors"],
         ["Camera / take photograph", "C / P"],
         ["Season and weather", "Click the sky control or press V"],
@@ -590,7 +724,7 @@ function guide() {
       "note",
     ),
   );
-  content.append(wildlife);
+  if (val(36) <= 1) content.append(wildlife);
   if (window.mountainXR?.supported)
     content.append(
       button(
@@ -837,6 +971,8 @@ window.addEventListener("keydown", (e) => {
     p: capture,
     m: () => $("sound").click(),
     g: guide,
+    "[": () => visit((val(28) + val(29) - 1) % val(29)),
+    "]": () => visit((val(28) + 1) % val(29)),
     v: conditions,
     y: () => act(4),
     u: () => act(5),

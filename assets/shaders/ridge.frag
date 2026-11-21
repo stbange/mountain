@@ -7,6 +7,9 @@ uniform sampler2D u_canopy;
 uniform sampler2D u_lake;
 uniform sampler2D u_trail;
 uniform float u_season;
+uniform int u_profile;
+uniform vec3 u_soil;
+uniform vec3 u_liquid;
 uniform vec3 u_trail_center;
 uniform vec3 u_pattern;
 uniform int u_reflection;
@@ -49,10 +52,10 @@ void main() {
         vec3 moon=normalize(vec3(-u_sun.x,max(.12,-u_sun.y),-u_sun.z));
         float md=dot(ray,moon);
         float face=noise(ray.xz*445.0)*.19+.77;
-        sky=mix(sky,vec3(.91,.93,.83)*face,smoothstep(.99945,.99969,md)*(1.0-day));
+        if(u_profile!=7) sky=mix(sky,vec3(.91,.93,.83)*face,smoothstep(.99945,.99969,md)*(1.0-day));
         vec2 stars=vec2(atan(ray.z,ray.x),asin(clamp(ray.y,-1.0,1.0)))*170.0;
         float star=step(.985,hash(floor(stars)))*(1.0-smoothstep(.07,.32,length(fract(stars)-.5)));
-        sky+=vec3(.79,.83,.84)*star*(1.0-day)*smoothstep(-.04,.2,h);
+        sky+=vec3(.79,.83,.84)*star*(u_profile==7?1.0:(1.0-day))*smoothstep(-.04,.2,h);
         vec2 uv=ray.xz/(h+.115)*vec2(1.22,2.32)+vec2(u_clock*.002,-.49);
         float cloud=clouds(uv), threshold=weather==0.0?.56:(weather==3.0?.52:.36);
         float cover=smoothstep(threshold,threshold+.115,cloud)*smoothstep(-.03,.11,ray.y);
@@ -60,6 +63,32 @@ void main() {
         vec3 highlight=mix(vec3(.30,.33,.39),vec3(1.0,.95,.849),day);
         if(weather==2.0) highlight=mix(highlight,shadow,.54);
         sky=mix(sky,mix(shadow,highlight,smoothstep(threshold+.005,threshold+.16,cloud)),cover*.93);
+        if(u_profile==7) {
+            sky=mix(u_horizon,u_zenith,h)+vec3(.72,.78,.89)*star+vec3(1.0,.96,.84)*smoothstep(.9995,.9997,sd);
+        }
+        if(u_profile>=7) {
+            vec3 centre=normalize(vec3(-.36,.37,-1.0));
+            vec3 ex=normalize(cross(centre,vec3(0,1,0))),ey=cross(ex,centre);
+            vec2 orb=vec2(dot(ray,ex),dot(ray,ey))/(u_profile==7?.072:.115);
+            float rr=dot(orb,orb);
+            if(dot(ray,centre)>.8) {
+                if(u_profile==10) {
+                    vec2 tilt=vec2(orb.x+.36*orb.y,orb.y-.36*orb.x);
+                    float ring=length(tilt*vec2(.62,2.40));
+                    if(ring>1.05 && ring<1.65)sky=mix(sky,vec3(.9,.77,.61),.46+.20*cos(ring*52.0));
+                }
+                if(rr<1.0) {
+                    float depth=sqrt(1.0-rr),land=noise(orb*3.5+2.3)+.33*noise(orb*9.1);
+                    vec3 disk=u_profile==7?mix(vec3(.14,.38,.63),vec3(.35,.53,.37),smoothstep(.62,.77,land)):mix(u_liquid,u_soil,.48+.24*sin(orb.y*14.0+land));
+                    if(u_profile==7)disk=mix(disk,vec3(.90,.92,.89),smoothstep(.58,.78,noise(orb*8.0+2.0*land)));
+                    sky=disk*(.28+.75*max(0.0,.58*orb.x+.23*orb.y+.65*depth));
+                }
+            }
+            if(u_profile==8 || u_profile==9 || u_profile==11) {
+                float small=dot(ray,normalize(vec3(.30,.21,-1.0)));
+                sky=mix(sky,mix(u_soil,vec3(1),.50),smoothstep(.9995,.99965,small));
+            }
+        }
         gl_FragColor=vec4(sky+grain,1); return;
     }
     float dist=length(v_pos-u_eye);
@@ -73,7 +102,8 @@ void main() {
     } else if(mat>1.5 && mat<2.5) {
         float ribbon=noise(vec2(groundUV.x*.14+u_clock*.16,groundUV.y*1.65+u_clock*.085));
         float remote=smoothstep(45.0,360.0,dist);
-        col=mix(vec3(.16,.44,.48),u_horizon*.88,.15+remote*.40);
+        col=mix(u_liquid,u_horizon*.88,.12+remote*.33);
+        if(u_profile==11){float cracks=noise(groundUV*.39+u_clock*.07);gl_FragColor=vec4(mix(vec3(.28,.085,.07),vec3(1.0,.55,.12),smoothstep(.31,.66,cracks)),1);return;}
         vec2 screen=(gl_FragCoord.xy-u_viewport.xy)/u_viewport.zw;
         float wave=noise(vec2(groundUV.x*.07,groundUV.y*.68+u_clock*.07))-.5;
         vec3 reflection=texture2D(u_lake,clamp(screen+vec2(wave*.009,(ribbon-.5)*.019),.002,.998)).rgb;
@@ -110,7 +140,10 @@ void main() {
             float edge=distanceToTrail+(noise(groundUV*1.35)-.5)*.56;
             float tread=1.0-smoothstep(1.15,2.12,edge);
             vec3 grit=mix(vec3(.49,.37,.25),vec3(.76,.64,.45),detail);
-            grit=mix(grit,vec3(.64,.70,.70),step(2.5,u_season)*.86);
+            if(u_profile<=1) grit=mix(grit,vec3(.76,.82,.82),max(step(2.5,u_season)*.86,smoothstep(135.0,190.0,v_pos.y)*.96));
+            else grit=mix(u_soil*.70,u_soil*1.06,detail);
+            if(u_profile==3 || u_profile==2)col*=.95+.07*sin(groundUV.x*4.1+groundUV.y*1.6+4.0*detail);
+            if(u_profile==7)col*=.81+.28*noise(groundUV*5.0);
             float gravel=noise(groundUV*7.0);
             grit*=.90+.13*gravel+.09*smoothstep(.71,.88,gravel);
             col=mix(col,grit*sunlight,tread*.97);
@@ -121,6 +154,8 @@ void main() {
     col*=tint;
     if(mat>4.5) col=mix(col,v_colour, .81);
     float fograte=weather==3.0?.0065:(weather==2.0?.0037:(weather==1.0?.0019:.00078));
+    if(mat>5.5)col=v_colour*(1.0+.11*sin(u_clock*1.8+v_pos.y));
+    if(u_profile==7)fograte=.000045;
     float fog=1.0-exp(-dist*fograte);
     vec3 fogcol=mix(u_horizon,mix(vec3(.43,.53,.63),vec3(.62,.69,.72),day),.48*day);
     col=mix(col,fogcol,fog*.91);
