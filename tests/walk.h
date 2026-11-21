@@ -29,3 +29,10 @@ static void isolated_journal(void) {
     SDL_free(dir);
     SDL_setenv_unsafe("MOUNTAIN_FIELD_NOTES", test_notes, 1);
 }
+
+static void remove_test_journal(void) {
+    char cabin[1100];
+    SDL_snprintf(cabin, sizeof cabin, "%s.cabin", test_notes);
+    SDL_RemovePath(cabin);
+    SDL_RemovePath(test_notes);
+}

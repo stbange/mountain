@@ -21,6 +21,7 @@ const val = (id) => Module._mountain_value(id);
 const nameOf = (id) =>
   Module.ccall("mountain_label", "string", ["number"], [id]);
 const icon = (name) => '<i aria-hidden="true" class="icon i-' + name + '"></i>';
+const lookoutWeather = ["Calm", "Thunderstorm", "Snowstorm", "Heavy fog"];
 const near = [
   "",
   "Open door",
@@ -30,6 +31,11 @@ const near = [
   "Previous room",
   "Read field sign",
   "Discover treasure",
+  "Open room door",
+  "Open window",
+  "Close window",
+  "Open balcony door",
+  "Cross balcony threshold",
 ];
 function notice(message) {
   clearTimeout(state.toastTimer);
@@ -108,7 +114,8 @@ function refresh() {
   $("height").textContent = Math.round(val(8)).toLocaleString() + " m";
   $("season").textContent = nameOf(1);
   $("clock").textContent = timeText(h);
-  $("skies").textContent = nameOf(2);
+  $("skies").textContent =
+    inside && val(39) ? lookoutWeather[val(39)] : nameOf(2);
   $("sky-icon").className =
     "icon i-" +
     (val(36) === 7
@@ -119,9 +126,14 @@ function refresh() {
           ? "moon"
           : "sun");
   $("use").hidden = !use || state.camera;
-  $("door").hidden = state.camera || ![2, 3].includes(val(13));
-  $("use").querySelector("span").textContent =
-    val(13) >= 6 ? use + " · " + nameOf(10) : use;
+  $("door").hidden = state.camera || ![2, 3, 4, 5, 12].includes(val(13));
+  $("blind").hidden = state.camera || ![9, 10].includes(val(13));
+  $("blind").querySelector("span").textContent = val(42)
+    ? "Raise blind"
+    : "Lower blind";
+  $("use").querySelector("span").textContent = [6, 7].includes(val(13))
+    ? use + " · " + nameOf(10)
+    : use;
   $("cabin").querySelector("span").textContent = inside
     ? "Hearth room"
     : val(9)
@@ -155,11 +167,20 @@ function stop() {
 }
 function act(action) {
   if (!state.ready) return;
-  const reading = action === 2 && val(13) >= 6;
+  const reading = action === 2 && [6, 7].includes(val(13));
   const result = Module._mountain_action(action);
   if (reading) notice(nameOf(8));
   if (action === 1 && result)
     notice(val(9) ? "Your cabin is here." : "Cabin dismissed.");
+  if (action === 11) notice("Cabin weather · " + lookoutWeather[val(39)]);
+  if (action === 12)
+    notice(val(40) ? "Wolves may pass the cabin." : "Wolf sightings off.");
+  if (action === 13)
+    notice(
+      val(41) ? "A giant walks the distant ridge." : "Giant sightings off.",
+    );
+  if (val(43))
+    notice("Cabin save unavailable. Your rooms are still here for this visit.");
   refresh();
 }
 function cabin() {
@@ -311,6 +332,18 @@ function conditions() {
       input.value = Math.round(h * 60);
       display.textContent = timeText(h);
     },
+  );
+  choose(content, "Cabin window weather", lookoutWeather, val(39), (i) => {
+    while (val(39) !== i) act(11);
+  });
+  modeControl("Watch a wolf pack", 40, 12);
+  modeControl("Watch a ridge giant", 41, 13);
+  content.append(
+    el(
+      "p",
+      "These sights appear only while you’re in the cabin or on its balcony.",
+      "note",
+    ),
   );
 }
 function topography(map, showSummit = false) {
@@ -684,6 +717,8 @@ function guide() {
           "Use a door or read a field sign",
           "Tap the nearby interaction prompt",
         ],
+        ["Window panes and blinds", "Tap their controls beside a window"],
+        ["Return to the entrance", "Tap Hearth room in the cabin"],
         ["Photograph a view", "Camera → Take photo"],
       ]
     : [
@@ -691,8 +726,9 @@ function guide() {
         ["Look around", "Drag the view · ← →"],
         ["Summon or dismiss cabin", "H · outdoors"],
         ["Use a door or read a field sign", "E · beside it"],
-        ["Open or close the front door", "F · beside it"],
-        ["Return to the hearth room", "R · indoors"],
+        ["Open or close a door", "F · beside it"],
+        ["Open a pane or adjust its blind", "E · pane / J · blind"],
+        ["Return to the hearth room", "R"],
         ["Camera / take photograph", "C / P"],
         ["Season and weather", "Click the sky control or press V"],
         ["Sound / close panel", "M / Esc"],
@@ -705,7 +741,7 @@ function guide() {
   content.append(
     el(
       "p",
-      "Doors at the far end lead to another room. The front door in the Hearth Room leads back to the trail.",
+      "Open a rear or right-hand door to discover a room. The front door retraces your route. Your rooms, windows and blinds are saved on this device.",
       "note",
     ),
   );
@@ -911,6 +947,7 @@ $("shutter").onclick = capture;
 $("cabin").onclick = cabin;
 $("use").onclick = () => act(2);
 $("door").onclick = () => act(9);
+$("blind").onclick = () => act(10);
 $("sound").onclick = () => {
   if (state.ready) {
     Module._mountain_sound();
@@ -970,6 +1007,10 @@ window.addEventListener("keydown", (e) => {
     h: () => act(1),
     e: () => act(2),
     f: () => act(9),
+    j: () => act(10),
+    k: () => act(11),
+    l: () => act(12),
+    x: () => act(13),
     r: () => act(6),
     c: () => mode(!state.camera),
     p: capture,

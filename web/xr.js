@@ -52,8 +52,11 @@ window.mountainXR = {
         refresh();
       });
       session.addEventListener("squeeze", (event) => {
-        const atDoor = [1, 2, 3].includes(val(13));
-        act(event.inputSource?.handedness === "left" && atDoor ? 9 : 1);
+        const near = val(13);
+        const left = event.inputSource?.handedness === "left";
+        if (left && [9, 10].includes(near)) act(10);
+        else if (left && [1, 2, 3, 4, 5, 8, 11, 12].includes(near)) act(9);
+        else act(val(11) ? 6 : 1);
       });
       Module._mountain_xr_active(1);
       const frame = (now, xrFrame) => {
@@ -88,13 +91,13 @@ window.mountainXR = {
           if (Math.abs(turn) > 0.7 && !turned)
             Module._mountain_look((Math.sign(turn) * Math.PI) / 6, 0);
           turned = Math.abs(turn) > 0.5;
-          if (season && !seasonHeld) act(4);
-          if (weather && !weatherHeld) act(5);
-          if (time && !timeHeld) act(3);
+          if (season && !seasonHeld) act(val(11) ? 12 : 4);
+          if (weather && !weatherHeld) act(val(11) ? 11 : 5);
+          if (time && !timeHeld) act(val(11) ? 13 : 3);
           timeHeld = time;
           seasonHeld = season;
           weatherHeld = weather;
-          if (button && !summoned) act(1);
+          if (button && !summoned) act(val(11) ? 6 : 1);
           summoned = button;
           const rot = pose.transform.orientation;
           headYaw = Math.atan2(

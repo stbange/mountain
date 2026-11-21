@@ -51,7 +51,11 @@ Firs, spruce, larches and aspens grow from seeded voxel trunks and branches. Lar
 
 Ridges cast broad shadows and the gaps between fir branches let sunlight reach the trail. Clouds move across the sky and the ground together. At Erg Chebbi, sand lends shaded slopes an amber cast. On the Moon, crater rims cast sharply defined shadows.
 
-**Summon cabin** places a furnished lodge ahead. Its footings follow the slope. In a grove, a mature tree at the edge of the floor can carry the platform. Open the front door to see the Hearth Room, then walk through. The door at the far end leads to another room. Rooms are regenerated from their index as you move. Their windows look back onto the current mountain. Walk back the way you came, or use **R** to return to the entrance. At the entrance, close the front door to shade the rug. The windows still admit sunlight, and the bedside lamp and stove light the furnishings after dusk. Step outside to dismiss the house.
+**Summon cabin** places a furnished lodge ahead. Its footings follow the slope. In a grove, a mature tree at the edge of the floor can carry the platform. Open the front door to see the Hearth Room, then walk through. The rear and right-hand doors start closed. Opening one reveals a room you can look into before stepping through. The rear door of the Hearth Room leads to the spring baths, and its right door leads to the winter garden. Both have railed balconies. Other branches include bedrooms, reading rooms, a map gallery and a sunroom. The front door of each room retraces your route. Press **R** to return to the Hearth Room from any room, balcony or trail.
+
+Beside a window, press **E** to swing its glass pane and **J** to raise or lower its blind. The house remembers its rooms, door positions, panes and blinds when you dismiss it, travel to another world or restart the game on this device. The exterior entrance closes when you summon the cabin again.
+
+In **Trail conditions**, the cabin window weather can be calm, a thunderstorm, a snowstorm or heavy fog. You can also switch a passing wolf pack and a distant antlered giant on or off independently. These options start off. They affect the view from the cabin and its balconies. The creatures follow their own paths and cannot sense or reach you. Enable sound to hear the thunder roll after the sky lights up.
 
 **Camera** opens the viewfinder. Take a photograph, then open **Photo journal** to view it or download its PNG. The browser keeps photographs in IndexedDB on that browser and device. Native photographs are lossless BMPs in the SDL user preference directory for Mountain. The window title and console show the saved path.
 
@@ -61,15 +65,17 @@ Ridges cast broad shadows and the gaps between fir branches let sunlight reach t
 | Look | Drag the web view or use left/right arrows. On native, click to capture the mouse and Esc to release it. | Drag the landscape |
 | Summon or dismiss the cabin outdoors | H | Cabin button |
 | Open a door or cross the nearby threshold | E or walk through an open door | Door prompt or thumb pad |
-| Close or reopen the front door from either side | F near the entrance | Close door or Open door |
-| Return to the Hearth Room | R while indoors | Hearth room button |
+| Close or reopen any door from either side | F beside the door | Close door or Open door |
+| Open or close a glass pane / adjust its blind | E / J beside the window | Window / blind buttons |
+| Cabin weather / wolves / giant | K / L / X | Trail conditions |
+| Return to the Hearth Room | R | Hearth room button |
 | Photograph | P. On web, C opens the viewfinder. | Camera, then Take photo |
 | Sound | M | Speaker button |
 | Guide | G on web, F1 on native | Field guide |
 | Conditions | V opens the web panel. Y changes season, U changes weather and T advances the hour. Native I toggles seasonal cycling and O toggles changing weather. | Season & weather |
 | Destination | Trail map on web. On native, B opens Taggart Lake and N generates a new mountain. | Trail map |
 
-On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to read a sign or use a door, and squeeze to summon or dismiss outdoors. Beside the front door the left grip opens or closes it. On controllers with X and Y face buttons, X changes season and Y changes weather. The right secondary face button advances the time of day for dusk clues. WebXR requires HTTPS or localhost.
+On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to read a sign or use a door, and squeeze to summon or dismiss outdoors. Indoors, the trigger opens a pane or uses a door, the left grip operates its blind or door latch, and the right grip returns to the Hearth Room. On controllers with X and Y face buttons, X changes season and Y changes weather. The right secondary face button advances the time of day for dusk clues. Indoors, X toggles wolves, Y cycles cabin weather and the right secondary button toggles the giant. WebXR requires HTTPS or localhost.
 
 ## Build
 
@@ -96,7 +102,7 @@ Open http://localhost:8000/. Serve the entire directory. The loader reads the ma
 
 | Location | Responsibility |
 | --- | --- |
-| src/world.c, src/backcountry.c and src/game.c | Seeded ridges, continuous trail sections, local coordinates, hiking and cabin state |
+| src/world.c, src/backcountry.c, src/game.c and src/cabin.c | Seeded ridges, continuous trail sections, local coordinates, hiking and cabin state |
 | src/route.c and src/survey.c | Grade-aware trail search, viewpoint selection, trail texture and survey interpolation |
 | assets/terrain/taggart.mht | Resampled public-domain terrain and lake footprint |
 | src/realms.c, src/expedition.c and src/landmarks.c | Regional landforms, graded summit route, footing, field clues and scenery placement |
@@ -112,7 +118,7 @@ Open http://localhost:8000/. Serve the entire directory. The loader reads the ma
 
 To reproduce the Taggart Lake terrain asset, run `python tools/prepare_taggart.py USGS_1_n44w111.tif assets/terrain/taggart.mht` with Pillow installed. The input tile used for this release has SHA-256 `ec3e6b490cdd5035af94952a0d6b4415c42b15da6a85ebeae75edaeb51c9afe5`. The preparation tool records the trailhead coordinates and samples a 40-metre grid.
 
-Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw, optional roof tilt and an optional light radius in metres. Material 7 marks a glowing fixture. The renderer takes up to four local lights, starting with the active room. Room zero is the main cabin. The renderer holds the active room and its immediate neighbours, so memory usage stays bounded as the hiker explores. Destination slots in destinations.lua identify saved journal entries. Append slots to extend a content pack. A destination selects a C terrain profile and a field skill. Its lighting table sets sky and ground-bounce RGB intensities, cloud influence from 0 to 1, and shadow softness from 0 (sharp) to 2. Its Lua artwork uses tapered strokes to construct scenery and relics, and the atlas photography lives in web/ui/atlas/.
+Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw, optional roof tilt and an optional light radius in metres. Material 7 marks a glowing fixture. The renderer takes up to four local lights, starting with the active room. Room zero is the main cabin. The engine stores compact records for discovered rooms and builds geometry for the active room and its open doorways. Append room types to cabin_layouts in cabin.lua to preserve the identity of saved layouts. Destination slots in destinations.lua identify saved journal entries. Append slots to extend a content pack. A destination selects a C terrain profile and a field skill. Its lighting table sets sky and ground-bounce RGB intensities, cloud influence from 0 to 1, and shadow softness from 0 (sharp) to 2. Its Lua artwork uses tapered strokes to construct scenery and relics, and the atlas photography lives in web/ui/atlas/.
 
 ## Specifications and tests
 

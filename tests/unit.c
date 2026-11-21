@@ -92,7 +92,8 @@ static void lighting(const Rules *r) {
     CHECK(moon.sky.b < earth.sky.b * .1f && moon.clouds == 0 && moon.softness == 0);
 }
 static void position(Game *g, float x, float z) {
-    Vec p = cabin_world(&g->cabin, x, 0, z);
+    Cabin frame = cabin_frame(g);
+    Vec p = cabin_world(&frame, x, 0, z);
     g->x = p.x;
     g->z = p.z;
 }
@@ -101,7 +102,9 @@ static void hiking(const Rules *r) {
     game_init(&g, r, r->seed);
     CHECK(!strcmp(trail_name(&g), "Larkspur Ridge"));
     CHECK(!game_action(&g, ACT_USE));
-    CHECK(!game_action(&g, ACT_HOME));
+    CHECK(game_action(&g, ACT_HOME) && g.cabin.inside && !g.cabin.room);
+    CHECK(game_action(&g, ACT_USE) && game_action(&g, ACT_USE) && game_action(&g, ACT_CABIN));
+    game_init(&g, r, r->seed);
     CHECK(!game_action(&g, (Action)45) && !game_action(&g, ACT_DOOR));
     game_conditions(&g, -1, 5, -2);
     CHECK(g.season == 3 && g.weather == 1);
@@ -157,7 +160,7 @@ static void hiking(const Rules *r) {
     CHECK(g.cabin.inside && game_near(&g) == NEAR_OPEN);
     CHECK(game_action(&g, ACT_USE) && g.cabin.open);
     position(&g, 3, 0);
-    CHECK(game_near(&g) == NEAR_NONE);
+    CHECK(game_near(&g) == NEAR_ROOM_DOOR);
     position(&g, 0, 0);
     CHECK(game_near(&g) == NEAR_NONE);
     position(&g, 2.8f, 3.6f);
@@ -165,30 +168,98 @@ static void hiking(const Rules *r) {
     game_tick(&g, .16f, 1, 0);
     CHECK(g.cabin.inside && cabin_local(&g.cabin, g.x, g.z).z < 3.7f);
     position(&g, 0, -3.4f);
-    CHECK(game_near(&g) == NEAR_NEXT);
+    CHECK(game_near(&g) == NEAR_ROOM_DOOR);
+    g.yaw = g.cabin.angle;
+    for (int i = 0; i < 30; i++)
+        game_tick(&g, .12f, 1, 0);
+    CHECK(!g.book.count && !g.cabin.room);
     for (int i = 0; i < 1002; i++) {
-        position(&g, 0, -3.5f);
-        CHECK(game_action(&g, ACT_USE));
+        position(&g, 0, -cabin_layout(&g)->depth + .52f);
+        CHECK(game_near(&g) == NEAR_ROOM_DOOR && game_action(&g, ACT_USE));
+        CHECK(g.book.count == (uint32_t)i + 1 && g.cabin.room == (uint32_t)i);
+        CHECK(game_near(&g) == NEAR_NEXT && game_action(&g, ACT_USE));
     }
     CHECK(g.cabin.room == 1002);
-    position(&g, 0, 3.4f);
-    CHECK(game_near(&g) == NEAR_BACK);
+    CHECK(game_near(&g) == NEAR_BACK && game_action(&g, ACT_DOOR));
+    CHECK(game_near(&g) == NEAR_ROOM_DOOR && game_action(&g, ACT_DOOR));
     CHECK(game_action(&g, ACT_USE) && g.cabin.room == 1001);
-    position(&g, 0, 3.5f);
+    position(&g, 0, cabin_layout(&g)->depth - .4f);
     g.yaw = g.cabin.angle + PI;
     for (int i = 0; i < 40 && g.cabin.room == 1001; i++)
-        game_tick(&g, 1.f / 120, 1, 0);
+        game_tick(&g, .05f, 1, 0);
     CHECK(g.cabin.room == 1000);
-    position(&g, 0, -3.5f);
+    position(&g, 0, -cabin_layout(&g)->depth + .4f);
     g.yaw = g.cabin.angle;
     for (int i = 0; i < 40 && g.cabin.room == 1000; i++)
-        game_tick(&g, 1.f / 120, 1, 0);
-    CHECK(g.cabin.room == 1001);
+        game_tick(&g, .05f, 1, 0);
+    CHECK(g.cabin.room == 1001 && g.book.count == 1002);
     CHECK(game_action(&g, ACT_HOME));
-    CHECK(game_near(&g) == NEAR_EXIT);
+    position(&g, 4, 0);
+    CHECK(game_action(&g, ACT_USE) && game_action(&g, ACT_USE));
+    CHECK(g.cabin.room == 1003 && cabin_room(&g.book, g.cabin.room)->turn == 1);
+    CHECK(cabin_layout(&g)->balcony && cabin_layout(&g)->width > 10);
+    const Layout *l = cabin_layout(&g);
+    position(&g, -l->width + .4f, 0);
+    CHECK(game_near(&g) == NEAR_BALCONY_DOOR && game_action(&g, ACT_USE));
+    CHECK(game_near(&g) == NEAR_BALCONY && game_action(&g, ACT_USE));
+    Cabin frame = cabin_frame(&g);
+    CHECK(cabin_local(&frame, g.x, g.z).x < -l->width && g.cabin.inside);
+    CHECK(game_action(&g, ACT_DOOR));
+    g.yaw = frame.angle;
+    for (int i = 0; i < 30; i++)
+        game_tick(&g, .15f, 0, -1);
+    CLOSE(cabin_local(&frame, g.x, g.z).x, -l->width - 2.95f);
+    for (int i = 0; i < 30; i++)
+        game_tick(&g, .15f, 0, 1);
+    CHECK(cabin_local(&frame, g.x, g.z).x < -l->width);
+    CHECK(game_action(&g, ACT_DOOR));
+    game_tick(&g, .2f, 0, 1);
+    CHECK(cabin_local(&frame, g.x, g.z).x > -l->width && !g.falls);
+    for (int wall = 0; wall < 4; wall++) {
+        for (int side = 0; side < 2; side++) {
+            float along = (side ? .60f : -.60f);
+            if (wall <= REAR)
+                position(&g, along * l->width, (wall == FRONT ? 1 : -1) * (l->depth - .4f));
+            else
+                position(&g, (wall == RIGHT_WALL ? 1 : -1) * (l->width - .4f), along * l->depth);
+            int win = wall * 2 + side;
+            CHECK(cabin_window(&g) == win && game_near(&g) == NEAR_PANE_CLOSED);
+            CHECK(!game_action(&g, ACT_DOOR) && game_action(&g, ACT_BLINDS));
+            CHECK(game_action(&g, ACT_USE) && game_near(&g) == NEAR_PANE_OPEN);
+            CHECK(cabin_room(&g.book, 1003)->panes == ((2u << win) - 1));
+        }
+    }
+    position(&g, 0, l->depth - .5f);
+    CHECK(game_action(&g, ACT_USE) && !g.cabin.room);
+    CHECK(game_near(&g) == NEAR_NEXT && game_action(&g, ACT_DOOR));
+    CHECK(game_action(&g, ACT_USE) && game_action(&g, ACT_USE) && g.cabin.room == 1003);
+    CHECK(cabin_room(&g.book, 1003)->panes == 255 && cabin_room(&g.book, 1003)->blinds == 255);
+    CHECK(game_action(&g, ACT_LOOKOUT_WEATHER) && game_action(&g, ACT_LOOKOUT_PREDATORS) &&
+          game_action(&g, ACT_LOOKOUT_GIANTS));
+    char *saved = cabin_encode(&g.book);
+    RoomBook copy = {0};
+    CHECK(saved && cabin_decode(&copy, saved, r->layouts));
+    CHECK(copy.count == 1003 && copy.weather == 1 && copy.predators && copy.giants);
+    char *again = cabin_encode(&copy);
+    CHECK(!strcmp(saved, again));
+    free(again);
+    free(saved);
+    const char *invalid[] = {NULL,
+                             "bad",
+                             "CAB10",
+                             "CAB1q000000000000000",
+                             "CAB10000000000020000",
+                             "CAB10000000001000000",
+                             "CAB1000000000000000000000000210000000000002100000"};
+    for (size_t i = 0; i < sizeof invalid / sizeof *invalid; i++)
+        CHECK(!cabin_decode(&copy, invalid[i], r->layouts) && copy.count == 1003);
+    cabin_forget(&copy);
+    CHECK(game_action(&g, ACT_HOME) && game_near(&g) == NEAR_EXIT);
     for (int i = 0; i < 100 && g.cabin.inside; i++)
         game_tick(&g, 1.f / 120, 1, 0);
     CHECK(!g.cabin.inside && game_action(&g, ACT_CABIN) && !g.cabin.present);
+    CHECK(game_action(&g, ACT_HOME) && g.cabin.inside && g.book.count == 1003);
+    cabin_forget(&g.book);
 }
 static void marked_hikes(const Rules *rules, const char *assets) {
     Game g;
@@ -729,11 +800,48 @@ static void composition(Script *s) {
     CHECK(size > 1000);
     game_action(&g, ACT_USE);
     cabin_mesh(&m, s, &g);
-    CHECK(m.count > size);
+    CHECK(m.count != size && g.book.count == 0);
     game_action(&g, ACT_USE);
-    g.cabin.room = 8;
+    position(&g, 0, -3.5f);
+    CHECK(game_action(&g, ACT_USE) && g.book.count == 1);
     cabin_mesh(&m, s, &g);
     CHECK(m.count > size);
+    bool portal = false;
+    for (size_t i = 0; i < m.count; i++)
+        if (m.v[i].material >= 16)
+            portal = true;
+    CHECK(portal);
+    CHECK(game_action(&g, ACT_USE) && cabin_layout(&g)->width == 10);
+    position(&g, 0, 0);
+    CHECK(eye(&g).y < g.cabin.y + 1);
+    g.weather = 0;
+    Mesh visitors = {0};
+    wildlife(&visitors, s, &g);
+    size_t ordinary = visitors.count;
+    game_action(&g, ACT_LOOKOUT_PREDATORS);
+    game_action(&g, ACT_LOOKOUT_GIANTS);
+    wildlife(&visitors, s, &g);
+    CHECK(visitors.count > ordinary + 500);
+    size_t patrol_n = visitors.count - ordinary;
+    Vertex *patrol = malloc(patrol_n * sizeof *patrol);
+    CHECK(patrol);
+    memcpy(patrol, visitors.v + ordinary, patrol_n * sizeof *patrol);
+    float closest = 1000;
+    for (size_t i = 0; i < patrol_n; i++)
+        closest = fminf(closest, hypotf(patrol[i].x - g.cabin.x, patrol[i].z - g.cabin.z));
+    CHECK(closest > hypotf(cabin_layout(&g)->width + 3.2f, cabin_layout(&g)->depth));
+    position(&g, -cabin_layout(&g)->width - 2, 0);
+    wildlife(&visitors, s, &g);
+    CHECK(visitors.count >= patrol_n &&
+          !memcmp(patrol, visitors.v + visitors.count - patrol_n, patrol_n * sizeof *patrol));
+    free(patrol);
+    position(&g, 0, 0);
+    for (int i = 0; i < 4; i++) {
+        game_action(&g, ACT_LOOKOUT_WEATHER);
+        wildlife(&visitors, s, &g);
+        CHECK(!visitors.failed);
+    }
+    mesh_free(&visitors);
     Game grove;
     game_init(&grove, &s->rules, 41);
     bool found = false;
@@ -776,20 +884,21 @@ static void composition(Script *s) {
     grove.hour = 0;
     wildlife(&m, s, &grove);
     CHECK(m.count < in_flight);
-    CHECK(!strcmp(room_name(s, 0), "Hearth Room"));
-    CHECK(strcmp(room_name(s, 2147483647u), "Hearth Room"));
+    CHECK(!strcmp(s->rules.layout[0].name, "Hearth Room"));
     Pose pose = {{0}, 0};
+    Room example = {.kind = 4, .key = 218, .blinds = 54, .panes = 23};
     mesh_clear(&m);
-    CHECK(script_room(s, &m, pose, 13, true, false));
+    CHECK(script_room(s, &m, pose, &example, 6, -1));
     original = geometry_hash(&m);
     size = m.count;
     mesh_clear(&m);
-    CHECK(script_room(s, &m, pose, 13, true, false));
+    CHECK(script_room(s, &m, pose, &example, 6, -1));
     CHECK(size == m.count && original == geometry_hash(&m));
     CHECK(luaL_dostring(s->L, "function build_room() error('broken room') end; function "
-                              "room_title() error('bad title') end") == LUA_OK);
-    CHECK(!script_room(s, &m, pose, 1, false, false) && strstr(s->error, "broken room"));
-    CHECK(!strcmp(room_name(s, 1), "Cabin"));
+                              "build_visitor() error('broken visitor') end") == LUA_OK);
+    CHECK(!script_room(s, &m, pose, &example, 0, -1) && strstr(s->error, "broken room"));
+    CHECK(!script_visitor(s, &m, pose, false, 0));
+    cabin_forget(&g.book);
     mesh_clear(&m);
     box(&m, pose, (Vec){0}, (Vec){1, 2, 3}, rgb(0xe4e0dd));
     CHECK(m.count == 36);
@@ -861,6 +970,31 @@ static void platform(const char *assets) {
                           SDLK_ESCAPE, SDLK_P, SDLK_M, SDLK_M, SDLK_J};
     for (size_t i = 0; i < sizeof keys / sizeof *keys; i++)
         event_key(keys[i]);
+    CHECK(mountain_action(ACT_HOME));
+    mountain_look(PI, 0);
+    for (int i = 0; i < 65; i++)
+        mountain_walk(.04f, 1, 0);
+    CHECK(mountain_value(13) == NEAR_ROOM_DOOR && mountain_value(38) == 1);
+    event_key(SDLK_F);
+    CHECK(mountain_value(38) == 2 && !mountain_value(12));
+    event_key(SDLK_E);
+    CHECK(mountain_value(12) == 1);
+    event_key(SDLK_K);
+    event_key(SDLK_L);
+    event_key(SDLK_X);
+    CHECK(mountain_value(39) == 1 && mountain_value(40) && mountain_value(41));
+    CHECK(mountain_sound());
+    for (int i = 0; i < 110; i++)
+        mountain_walk(.20f, 0, 0);
+    mountain_frame();
+    event_key(SDLK_K);
+    mountain_frame();
+    event_key(SDLK_K);
+    mountain_frame();
+    event_key(SDLK_K);
+    event_key(SDLK_L);
+    event_key(SDLK_X);
+    CHECK(!mountain_sound());
     mountain_seed((uint32_t)mountain_value(23));
     CHECK(!strcmp(mountain_label(0), mountain_label(4)));
     CHECK(!strcmp(mountain_label(5), "Wyoming"));
@@ -928,10 +1062,12 @@ static void platform(const char *assets) {
     /* Verify missing rendering assets don't leave resources live. */
     CHECK(display_open("/no-shaders") == NULL);
     mountain_close();
-    CHECK(mountain_open(assets, 180, 120) && mountain_visit(BASALT));
+    CHECK(mountain_open(assets, 180, 120) && mountain_value(38) == 2 && mountain_visit(BASALT));
+    CHECK(mountain_value(38) == 2 && !mountain_value(39) && !mountain_value(40) &&
+          !mountain_value(41));
     CHECK(mountain_value(30) == 2 && strstr(mountain_label(8), mountain_entry(BASALT, 2)));
     mountain_close();
-    SDL_RemovePath(test_notes);
+    remove_test_journal();
 }
 int main(int argc, char **argv) {
     CHECK(argc == 2);

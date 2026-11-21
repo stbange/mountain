@@ -49,10 +49,11 @@ float ground(const Game *g, float x, float z) {
     float h = height_at(&g->world, x, z);
     if (g->cabin.present) {
         Vec p = cabin_local(&g->cabin, x, z);
-        float edge = fmaxf(fabsf(p.x) - 4.4f, fabsf(p.z) - 4.3f);
+        const Layout *l = g->rules->layout;
+        float edge = fmaxf(fabsf(p.x) - l->width, fabsf(p.z) - l->depth - .3f);
         h = mixf(fminf(h, g->cabin.y - .13f), h, smooth(-.2f, 2.9f, edge));
-        if (fabsf(p.x) < 1.55f && p.z > 3.8f && p.z < 6.3f)
-            h = mixf(g->cabin.y, h, smooth(3.8f, 6.3f, p.z));
+        if (fabsf(p.x) < 1.55f && p.z > l->depth - .2f && p.z < l->depth + 2.3f)
+            h = mixf(g->cabin.y, h, smooth(l->depth - .2f, l->depth + 2.3f, p.z));
     }
     return h;
 }
@@ -60,6 +61,13 @@ Vec eye(const Game *g) {
     float h = g->cabin.inside
                   ? g->cabin.y
                   : fmaxf(water_at(&g->world, g->x, g->z) - .25f, ground(g, g->x, g->z));
+    if (g->cabin.inside && cabin_room(&g->book, g->cabin.room)->kind == 1) {
+        Cabin frame = cabin_frame(g);
+        Vec p = cabin_local(&frame, g->x, g->z);
+        const Layout *l = cabin_layout(g);
+        float edge = fminf(l->width * .55f - fabsf(p.x), l->depth * .55f - fabsf(p.z));
+        h -= .92f * smooth(.04f, 1.65f, edge);
+    }
     return (Vec){g->x, (g->fall_time > 0 ? g->fall_y : h) + 1.65f, g->z};
 }
 void game_look(Game *g, float dx, float dy) {
@@ -78,53 +86,24 @@ Interaction game_near(const Game *g) {
     if (!c->present)
         return field_near(g);
     Vec p = cabin_local(c, g->x, g->z);
-    if (c->inside) {
-        if (fabsf(p.x) > 2.f)
-            return NEAR_NONE;
-        if (p.z < -1.7f)
-            return NEAR_NEXT;
-        if (p.z > 1.7f)
-            return c->room ? NEAR_BACK : (c->open ? NEAR_EXIT : NEAR_OPEN);
-        return NEAR_NONE;
-    }
-    if (fabsf(p.x) > 2.1f || p.z < 3.65f || p.z > 11.35f)
+    if (c->inside)
+        return cabin_near(g);
+    float d = g->rules->layout[0].depth;
+    if (fabsf(p.x) > 2.1f || p.z < d - .35f || p.z > d + 7.35f)
         return field_near(g);
     return c->open ? NEAR_ENTER : NEAR_OPEN;
 }
-static void cross_door(Game *g, Interaction action) {
-    Cabin *c = &g->cabin;
-    switch (action) {
-    case NEAR_OPEN:
-        c->open = true;
-        break;
-    case NEAR_ENTER:
-        c->inside = true;
-        c->room = 0;
-        place(g, 0, 1.55f, false);
-        g->yaw -= .16f;
-        g->pitch = -.045f;
-        break;
-    case NEAR_EXIT:
-        c->inside = false;
-        place(g, 0, 5.5f, true);
-        break;
-    case NEAR_NEXT:
-        if (c->room < UINT64_MAX)
-            c->room++;
-        place(g, 0, 1.55f, false);
-        break;
-    case NEAR_BACK:
-        if (c->room)
-            c->room--;
-        place(g, 0, -1.55f, true);
-        break;
-    default:
-        break;
-    }
+static void enter(Game *g) {
+    g->cabin.inside = true;
+    g->cabin.room = 0;
+    place(g, 0, g->rules->layout[0].depth - 2.45f, false);
+    g->yaw -= .16f;
+    g->pitch = -.045f;
 }
 static void grove_support(Game *g) {
     Cabin *c = &g->cabin;
     int cx = (int)floorf(c->x / 7), cz = (int)floorf(c->z / 7);
+    const Layout *l = g->rules->layout;
     float closest = 2.f;
     for (int j = cz - 2; j <= cz + 2; j++)
         for (int i = cx - 2; i <= cx + 2; i++) {
@@ -132,9 +111,9 @@ static void grove_support(Game *g) {
             if (!world_tree(&g->world, i, j, &tree) || tree.height < 8)
                 continue;
             Vec p = cabin_local(c, tree.x, tree.z);
-            float distance = fabsf(fabsf(p.x) - 4.83f);
-            if (distance < closest && fabsf(p.x) > 4.55f && fabsf(p.x) < 5.55f &&
-                fabsf(p.z) < 3.9f) {
+            float distance = fabsf(fabsf(p.x) - (l->width + .43f));
+            if (distance < closest && fabsf(p.x) > l->width + .15f &&
+                fabsf(p.x) < l->width + 1.15f && fabsf(p.z) < l->depth - .1f) {
                 closest = distance;
                 c->anchor = tree;
                 c->anchor_dx = tree.x - c->x;
@@ -159,38 +138,53 @@ bool game_action(Game *g, Action action) {
         }
         c->present = true;
         c->angle = g->yaw;
-        c->x = g->x + sinf(g->yaw) * 10.8f;
-        c->z = g->z - cosf(g->yaw) * 10.8f;
+        c->x = g->x + sinf(g->yaw) * (g->rules->layout[0].depth + 6.8f);
+        c->z = g->z - cosf(g->yaw) * (g->rules->layout[0].depth + 6.8f);
         c->site_x = g->world.ox + (double)c->x;
         c->site_z = g->world.oz + (double)c->z;
         {
-            Vec threshold = cabin_world(c, 0, 0, 4);
+            Vec threshold = cabin_world(c, 0, 0, g->rules->layout[0].depth);
             c->y = fmaxf(water_at(&g->world, threshold.x, threshold.z) + .24f,
                          height_at(&g->world, threshold.x, threshold.z) + .17f);
         }
         grove_support(g);
         return true;
-    case ACT_DOOR: {
-        Interaction near = game_near(g);
-        if (near != NEAR_OPEN && near != NEAR_ENTER && near != NEAR_EXIT)
-            return false;
-        c->open = !c->open;
-        return true;
-    }
+    case ACT_BLINDS:
+        return c->inside && cabin_use(g, action);
+    case ACT_DOOR:
     case ACT_USE: {
-        Interaction action_here = game_near(g);
-        if (action_here == NEAR_READ || action_here == NEAR_TREASURE)
-            return field_read(g);
-        if (action_here == NEAR_NONE)
-            return false;
-        cross_door(g, action_here);
-        return true;
+        if (c->inside)
+            return cabin_use(g, action);
+        Interaction here = game_near(g);
+        if (here == NEAR_OPEN || here == NEAR_ENTER) {
+            if (here == NEAR_ENTER && action == ACT_USE)
+                enter(g);
+            else
+                c->open = !c->open;
+            return true;
+        }
+        return action == ACT_USE && (here == NEAR_READ || here == NEAR_TREASURE) && field_read(g);
     }
     case ACT_HOME:
-        if (!c->inside)
+        if (g->fall_time > 0)
             return false;
-        c->room = 0;
-        place(g, 0, 2.65f, true);
+        if (!c->present)
+            game_action(g, ACT_CABIN);
+        world_position(g, c->site_x, c->site_z);
+        cabin_home(g);
+        g->exposed = false;
+        return true;
+    case ACT_LOOKOUT_WEATHER:
+        g->book.weather = (g->book.weather + 1) % 4;
+        g->book.revision++;
+        return true;
+    case ACT_LOOKOUT_PREDATORS:
+        g->book.predators = !g->book.predators;
+        g->book.revision++;
+        return true;
+    case ACT_LOOKOUT_GIANTS:
+        g->book.giants = !g->book.giants;
+        g->book.revision++;
         return true;
     case ACT_TIME:
         g->hour = fmodf(g->hour + 4, 24);
@@ -218,26 +212,17 @@ static void move(Game *g, float x, float z) {
     if (c->present) {
         Vec p = cabin_local(c, x, z), old = cabin_local(c, g->x, g->z);
         bool gap = fabsf(p.x) < .79f;
+        const Layout *l = g->rules->layout;
         if (c->inside) {
-            if (gap && p.z <= -3.85f) {
-                cross_door(g, NEAR_NEXT);
-                return;
-            }
-            if (gap && p.z >= 3.85f && (c->room || c->open)) {
-                cross_door(g, c->room ? NEAR_BACK : NEAR_EXIT);
-                return;
-            }
-            p.x = clampf(p.x, -4.05f, 4.05f);
-            if (gap && !c->room && !c->open)
-                p.z = fminf(p.z, 3.7f);
-            if (!gap)
-                p.z = clampf(p.z, -3.65f, 3.65f);
-            Vec v = cabin_world(c, p.x, 0, p.z);
-            x = v.x;
-            z = v.z;
-        } else if (fabsf(p.x) < 4.65f && fabsf(p.z) < 4.23f) {
-            if (gap && c->open && old.z >= 4.20f && p.z > 3.65f)
-                cross_door(g, NEAR_ENTER);
+            float previous_x = g->x, previous_z = g->z;
+            uint32_t previous_room = c->room;
+            cabin_walk(g, (Vec){x, 0, z});
+            if (previous_room == c->room && c->inside)
+                g->walked += hypotf(g->x - previous_x, g->z - previous_z);
+            return;
+        } else if (fabsf(p.x) < l->width + .25f && fabsf(p.z) < l->depth + .23f) {
+            if (gap && c->open && old.z >= l->depth + .20f && p.z > l->depth - .35f)
+                enter(g);
             return;
         }
     }

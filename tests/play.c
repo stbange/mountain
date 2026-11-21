@@ -140,8 +140,19 @@ static bool run(void) {
     press(SDLK_H);
     REQUIRE(mountain_value(9));
     mountain_look(.16f, 0);
-    walk(160, 1, 0);
-    REQUIRE(mountain_value(12) >= 3);
+    for (int i = 0; i < 3; i++) {
+        for (int step = 0; step < 320 && mountain_value(13) != NEAR_ROOM_DOOR; step++)
+            walk(1, 1, 0);
+        REQUIRE(mountain_value(13) == NEAR_ROOM_DOOR && mountain_value(38) == i + 1);
+        walk(24, 1, 0);
+        REQUIRE(mountain_value(12) == i);
+        press(SDLK_E);
+        REQUIRE(mountain_value(12) == i && mountain_value(38) == i + 2);
+        mountain_frame();
+        REQUIRE(display_sample(480, 300));
+        walk(14, 1, 0);
+        REQUIRE(mountain_value(12) == i + 1);
+    }
     press(SDLK_R);
     REQUIRE(mountain_value(12) == 0);
     press(SDLK_E);
@@ -177,7 +188,7 @@ int main(int argc, char **argv) {
         return 1;
     bool passed = run();
     mountain_close();
-    SDL_RemovePath(test_notes);
+    remove_test_journal();
     if (passed)
         puts("Live game passed. All twelve treasure hunts, the summit climb and fall recovery "
              "passed. Both mountains supported a five-kilometre round trip, distant "

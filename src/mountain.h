@@ -116,7 +116,28 @@ typedef struct {
     bool forked, deciduous;
     float first_bough, bough_variation, width, droop, foliage;
 } TreeShape;
+#define CABIN_LAYOUTS 16
 typedef struct {
+    char name[48];
+    float width, depth, height; /* Half extents in X/Z, full wall height. */
+    bool balcony;
+} Layout;
+typedef enum { FRONT, REAR, RIGHT_WALL, LEFT_WALL } Wall;
+typedef enum { LOOKOUT_CALM, LOOKOUT_THUNDER, LOOKOUT_SNOW, LOOKOUT_FOG } LookoutWeather;
+typedef struct {
+    uint32_t parent, child[2], key;
+    unsigned char incoming, turn, kind, doors, blinds, panes;
+} Room;
+typedef struct {
+    Room hearth, *rooms;
+    uint32_t count, capacity;
+    uint64_t revision;
+    unsigned weather;
+    bool predators, giants;
+} RoomBook;
+typedef struct {
+    int layouts;
+    Layout layout[CABIN_LAYOUTS];
     float hour, clock_rate, pace, relief, water, weather_interval, season_interval;
     Survey survey;
     uint32_t seed;
@@ -140,7 +161,7 @@ typedef struct {
 typedef struct {
     bool present, open, inside, tree_supported;
     Tree anchor;
-    uint64_t room;
+    uint32_t room;
     double site_x, site_z;
     float anchor_dx, anchor_dz;
     float x, y, z, angle;
@@ -149,6 +170,7 @@ typedef struct {
     World world;
     const Rules *rules;
     Cabin cabin;
+    RoomBook book;
     float x, z, yaw, pitch, hour, weather_clock, season_clock;
     double walked, elapsed, safe_x, safe_z;
     uint32_t notes;
@@ -168,7 +190,11 @@ typedef enum {
     ACT_HOME,
     ACT_CYCLE_SEASONS,
     ACT_CHANGING_WEATHER,
-    ACT_DOOR
+    ACT_DOOR,
+    ACT_BLINDS,
+    ACT_LOOKOUT_WEATHER,
+    ACT_LOOKOUT_PREDATORS,
+    ACT_LOOKOUT_GIANTS
 } Action;
 typedef enum {
     NEAR_NONE,
@@ -178,7 +204,12 @@ typedef enum {
     NEAR_NEXT,
     NEAR_BACK,
     NEAR_READ,
-    NEAR_TREASURE
+    NEAR_TREASURE,
+    NEAR_ROOM_DOOR,
+    NEAR_PANE_CLOSED,
+    NEAR_PANE_OPEN,
+    NEAR_BALCONY_DOOR,
+    NEAR_BALCONY
 } Interaction;
 
 void world_destination(World *w, uint32_t seed, const Rules *r, int destination);
@@ -249,6 +280,18 @@ void game_look(Game *g, float dx, float dy);
 void game_tick(Game *g, float dt, float forward, float right);
 Interaction game_near(const Game *g);
 bool game_action(Game *g, Action action);
+const Room *cabin_room(const RoomBook *book, uint32_t id);
+const Layout *cabin_layout(const Game *g);
+Cabin cabin_frame(const Game *g);
+unsigned cabin_doors(const Game *g, uint32_t id);
+int cabin_window(const Game *g);
+Interaction cabin_near(const Game *g);
+bool cabin_use(Game *g, Action action);
+void cabin_walk(Game *g, Vec target);
+void cabin_home(Game *g);
+char *cabin_encode(const RoomBook *book);
+bool cabin_decode(RoomBook *book, const char *text, int layouts);
+void cabin_forget(RoomBook *book);
 void game_conditions(Game *g, int season, int weather, float hour);
 const char *trail_name(const Game *g);
 
@@ -319,8 +362,8 @@ typedef struct {
 } Script;
 bool script_load(Script *s, const char *assets);
 void script_close(Script *s);
-bool script_room(Script *s, Mesh *m, Pose pose, uint64_t index, bool open, bool main_front);
-const char *room_name(Script *s, uint64_t index);
+bool script_room(Script *s, Mesh *m, Pose pose, const Room *room, unsigned doors, int omit_door);
+bool script_visitor(Script *s, Mesh *m, Pose pose, bool giant, float stride);
 void landscape(Mesh *m, Forest *forest, const Game *g, float cx, float cz);
 void cabin_mesh(Mesh *m, Script *s, const Game *g);
 void realm_scenery(Mesh *m, const Game *g, float cx, float cz);

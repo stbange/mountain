@@ -82,3 +82,32 @@ function build_animal(kind, season, phase, motion, id, draw)
   elseif kind==4 then marmot(draw,phase,motion)
   else eagle(draw,phase,motion) end
 end
+
+-- These distant visitors follow their own routes. Their gait has no awareness of the viewer.
+function build_visitor(giant,phase,draw)
+  local step=sin(phase)
+  if not giant then
+    local coat,ruff,feet=0x777568,0x9a9582,0x4e504b
+    draw(0,.72,.73,0,.90,-.61,.25,.32,coat)
+    draw(0,.90,-.41,0,1.16,-.79,.24,.29,ruff)
+    draw(0,1.17,-.65,0,1.06,-1.23,.16,.15,coat)
+    draw(0,1.07,-1.09,0,1.04,-1.25,.078,.075,feet)
+    for _,s in ipairs({-1,1}) do draw(s*.10,1.21,-.79,s*.15,1.47,-.72,.064,.076,feet) end
+    draw(0,.82,.51,.12*cos(phase*.45),.31,1.29,.15,.17,coat)
+    legs(draw,.16,.70,-.43,.44,.18*step,coat,feet)
+    return
+  end
+  local stone,moss,lichen=0x5e685e,0x778367,0xa69b7d
+  draw(0,7.1,.85,0,14.6,-.42,2.9,2.2,stone)
+  draw(0,13.0,-.2,0,16.7,-1.36,1.56,1.65,moss)
+  for _,s in ipairs({-1,1}) do
+    draw(s*1.34,8,.56,s*1.76,4.1,.3+s*step,1.22,1.38,stone)
+    draw(s*1.75,4.4,.3+s*step,s*1.91,.30,s*step*1.55,.91,1.04,stone)
+    draw(s*2.22,13.5,0,s*3.40,9.2,-s*step,.95,1.07,moss)
+    draw(s*3.4,9.5,-s*step,s*3.65,6.92,-s*step-.6,.63,.74,stone)
+    draw(s*.93,15.7,-1.1,s*2.18,18.55,-.45,.36,.38,lichen)
+    draw(s*2.18,18.4,-.48,s*3.54,19.8,.3,.17,.21,lichen)
+    draw(s*1.97,18.1,-.6,s*2.04,19.72,-1.32,.18,.23,lichen)
+    draw(s*.85,15.1,-2.46,s*.41,15.02,-2.68,.14,.11,0xc7b987)
+  end
+end

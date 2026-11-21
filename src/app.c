@@ -32,11 +32,11 @@ static const char *ambience(Profile profile) {
         return "surf";
     return profile >= LUNAR ? "resonance" : "wind";
 }
-static void chime(int pitch) {
+static void play_cue(const char *name) {
     if (!sound_on)
         return;
     char path[1150];
-    snprintf(path, sizeof path, "%s/sound/chime-%d.wav", assets, pitch);
+    snprintf(path, sizeof path, "%s/sound/%s.wav", assets, name);
     SDL_AudioSpec format;
     Uint8 *data = NULL;
     Uint32 bytes = 0;
@@ -61,6 +61,19 @@ EM_JS(uint32_t, read_notes, (void), {
 EM_JS(void, write_notes, (uint32_t notes), {
     try { localStorage.setItem("mountain.field-notes.v1", String(notes >>> 0)); }
     catch (e) {}
+});
+EM_JS(char *, load_cabin, (void), {
+    try {
+        const value = localStorage.getItem("mountain.cabin.v1");
+        if (!value) return 0;
+        const size = lengthBytesUTF8(value)+1, p = _malloc(size);
+        if (p) stringToUTF8(value,p,size);
+        return p;
+    } catch(e) {return 0;}
+});
+EM_JS(bool, store_cabin, (const char *data), {
+    try { localStorage.setItem("mountain.cabin.v1",UTF8ToString(data)); return true; }
+    catch(e) {return false;}
 });
 // clang-format on
 #else
@@ -88,7 +101,39 @@ static void write_notes(uint32_t notes) {
     if (SDL_SaveFile(tmp, bytes, n))
         SDL_RenamePath(tmp, notes_path);
 }
+static char *load_cabin(void) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s.cabin", notes_path);
+    char *file = SDL_LoadFile(path, NULL);
+    char *text = NULL;
+    if (file) {
+        size_t size = strlen(file) + 1;
+        text = malloc(size);
+        if (text)
+            memcpy(text, file, size);
+        SDL_free(file);
+    }
+    return text;
+}
+static bool store_cabin(const char *data) {
+    char path[1200], tmp[1210];
+    snprintf(path, sizeof path, "%s.cabin", notes_path);
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    return SDL_SaveFile(tmp, data, strlen(data)) && SDL_RenamePath(tmp, path);
+}
 #endif
+static bool cabin_dirty;
+static void save_cabin(void) {
+    char *text = cabin_encode(&game.book);
+    cabin_dirty = !text || !store_cabin(text);
+    free(text);
+    if (cabin_dirty) {
+        snprintf(game.field_note, sizeof game.field_note,
+                 "Cabin save unavailable. Your rooms are still here for this visit.");
+        game.note_timer = 8;
+        SDL_Log("%s", game.field_note);
+    }
+}
 static void SDLCALL fill_audio(void *unused, SDL_AudioStream *stream, int need, int total) {
     (void)unused;
     (void)total;
@@ -116,6 +161,8 @@ PUBLIC int mountain_sound(void) {
             return 0;
     }
     if (sound_on) {
+        if (instrument)
+            SDL_ClearAudioStream(instrument);
         SDL_PauseAudioStreamDevice(audio);
         sound_on = false;
     } else
@@ -138,9 +185,18 @@ PUBLIC int mountain_action(int action) {
             }
         }
     }
+    bool thunder_outside = game.cabin.inside && game.book.weather == LOOKOUT_THUNDER;
+    uint64_t revision = game.book.revision;
     int ok = game_action(&game, (Action)action);
-    if (pitch >= 0)
-        chime(pitch);
+    if (game.book.revision != revision || cabin_dirty)
+        save_cabin();
+    if (thunder_outside && (!game.cabin.inside || game.book.weather != LOOKOUT_THUNDER) &&
+        instrument)
+        SDL_ClearAudioStream(instrument);
+    if (pitch >= 0) {
+        const char *chimes[] = {"chime-0", "chime-1", "chime-2"};
+        play_cue(chimes[pitch]);
+    }
     if (before != game.notes) {
         int stage = field_stage(&game);
         uint32_t saved = read_notes();
@@ -193,7 +249,11 @@ static void arrive(int dest, uint32_t seed) {
     int season = game.season, weather = game.weather;
     float hour = game.hour;
     bool cycle = game.cycle_seasons, changing = game.changing_weather;
+    if (instrument && game.cabin.inside && game.book.weather == LOOKOUT_THUNDER)
+        SDL_ClearAudioStream(instrument);
+    RoomBook book = game.book;
     game_destination(&game, &scripts.rules, seed, dest);
+    game.book = book;
     game.notes = notes;
     field_refresh(&game);
     if (audio && strcmp(old, ambience(game.world.profile))) {
@@ -272,7 +332,7 @@ PUBLIC const char *mountain_label(int key) {
     case 2:
         return mountain_option(1, game.weather);
     default:
-        return room_name(&scripts, game.cabin.room);
+        return cabin_layout(&game)->name;
     }
 }
 PUBLIC const char *mountain_option(int kind, int index) {
@@ -381,6 +441,20 @@ PUBLIC double mountain_value(int key) {
         return a->count && hypot(x - a->start.x, z - a->start.z) > 36 &&
                ascent_distance(&game.world, x, z) < 24;
     }
+    case 38:
+        return game.book.count + 1;
+    case 39:
+        return game.book.weather;
+    case 40:
+        return game.book.predators;
+    case 41:
+        return game.book.giants;
+    case 43:
+        return cabin_dirty;
+    case 42: {
+        int n = cabin_window(&game);
+        return n >= 0 && (cabin_room(&game.book, game.cabin.room)->blinds & (1u << n));
+    }
     case 25:
         return scripts.rules.survey.data != NULL;
     default:
@@ -400,7 +474,17 @@ PUBLIC void mountain_xr_active(int enabled) {
     immersive = enabled != 0;
     input_f = input_r = 0;
 }
-PUBLIC void mountain_walk(float dt, float f, float r) { game_tick(&game, dt, f, r); }
+PUBLIC void mountain_walk(float dt, float f, float r) {
+    bool sheltered = game.cabin.inside;
+    double previous_phase = fmod(game.elapsed, 19);
+    game_tick(&game, dt, f, r);
+    if (sheltered && game.book.weather == LOOKOUT_THUNDER) {
+        if (game.cabin.inside && previous_phase < 5.15 && fmod(game.elapsed, 19) >= 5.15)
+            play_cue("thunder");
+        if (!game.cabin.inside && instrument)
+            SDL_ClearAudioStream(instrument);
+    }
+}
 PUBLIC void mountain_xr_eye(const Mat *projection, const Mat *view, int x, int y, int w, int h) {
     display_draw(display, &scripts, &game, (Viewport){x, y, w, h}, projection, view);
 }
@@ -430,6 +514,18 @@ static void key(SDL_Keycode k) {
         break;
     case SDLK_F:
         mountain_action(ACT_DOOR);
+        break;
+    case SDLK_J:
+        mountain_action(ACT_BLINDS);
+        break;
+    case SDLK_K:
+        mountain_action(ACT_LOOKOUT_WEATHER);
+        break;
+    case SDLK_L:
+        mountain_action(ACT_LOOKOUT_PREDATORS);
+        break;
+    case SDLK_X:
+        mountain_action(ACT_LOOKOUT_GIANTS);
         break;
     case SDLK_R:
         mountain_action(ACT_HOME);
@@ -509,7 +605,7 @@ bool mountain_step(void) {
         game_look(&game, (keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT]) * dt * 1.45f, 0);
 #endif
     if (!paused && !help)
-        game_tick(&game, dt, f, r);
+        mountain_walk(dt, f, r);
 #ifdef __EMSCRIPTEN__
     mountain_frame();
 #else
@@ -521,6 +617,10 @@ bool mountain_step(void) {
     return running;
 }
 void mountain_close(void) {
+    if (cabin_dirty)
+        save_cabin();
+    cabin_forget(&game.book);
+    cabin_dirty = false;
     if (instrument)
         SDL_DestroyAudioStream(instrument);
     instrument = NULL;
@@ -574,6 +674,10 @@ bool mountain_open(const char *asset_dir, int width, int height) {
     }
     game_init(&game, &scripts.rules, scripts.rules.seed);
     game.notes = read_notes();
+    char *saved_cabin = load_cabin();
+    if (saved_cabin && !cabin_decode(&game.book, saved_cabin, scripts.rules.layouts))
+        SDL_Log("Could not read the saved cabin floor plan.");
+    free(saved_cabin);
     field_refresh(&game);
     window = SDL_CreateWindow("Mountain", width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!window || !(context = SDL_GL_CreateContext(window)) || !(display = display_open(assets))) {

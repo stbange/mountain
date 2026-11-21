@@ -6,8 +6,16 @@
 static bool in_cabin(const Game *g, float x, float z) {
     if (!g->cabin.present)
         return false;
+    if (g->cabin.inside) {
+        Cabin frame = cabin_frame(g);
+        Vec p = cabin_local(&frame, x, z);
+        const Layout *l = cabin_layout(g);
+        return p.x < l->width + 1 && p.x > -l->width - (l->balcony ? 4.2f : 1.f) &&
+               fabsf(p.z) < l->depth + 1;
+    }
     Vec p = cabin_local(&g->cabin, x, z);
-    return fabsf(p.x) < 5.7f && fabsf(p.z) < 6.8f;
+    return fabsf(p.x) < g->rules->layout[0].width + 1.3f &&
+           fabsf(p.z) < g->rules->layout[0].depth + 2.8f;
 }
 static bool occupant(const Game *g, int i, int j, int member, Animal *a) {
     const World *w = &g->world;
@@ -72,7 +80,7 @@ static bool occupant(const Game *g, int i, int j, int member, Animal *a) {
         yaw = atan2f(-21 * sinf(t), -15 * cosf(t));
     } else {
         float dx = x - g->x, dz = z - g->z, r = fmaxf(.1f, hypotf(dx, dz));
-        float shy = 1 - smooth(2.5f, 10, r);
+        float shy = g->cabin.inside ? 0 : 1 - smooth(2.5f, 10, r);
         float roam = kind == MARMOT ? .55f : (kind == FOX ? 5.2f : 2.5f);
         float nx = x + roam * sinf(t) + shy * 4 * dx / r,
               nz = z + roam * .65f * cosf(t) + shy * 4 * dz / r;

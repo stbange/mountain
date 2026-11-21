@@ -62,32 +62,47 @@ for k=1,#world.fauna_names do
     assert(count>=6)
   end
 end
-load("cabin")
-record(build_room);record(room_title)
-local function shapes(i,open,front)
-  local n, blocked, ink, lights=0,false,0,0
-  build_room(i,open,front,function(x,y,z,w,h,d,colour,material,yaw,roll,radius)
-    assert(w>0 and h>0 and d>0 and math.type(colour)=="integer")
-    if radius then assert(radius>0 and material==7);lights=lights+1 end
-    n=n+1;ink=(ink+colour+math.floor((x+y+z)*200))%1000000007
-    -- Test the centre of the entrance aperture at eye height.
-    if math.abs(x)<w/2 and math.abs(y-1.65)<h/2 and math.abs(z-4.02)<d/2 then blocked=true end
+record(build_visitor)
+for _,giant in ipairs({false,true}) do
+  local n=0
+  build_visitor(giant,1.3,function(x,y,z,X,Y,Z,w,d,col)
+    assert(w>0 and d>0 and (x-X)^2+(y-Y)^2+(z-Z)^2>0)
+    n=n+1
   end)
-  if i==0 then assert(lights==2) end
-  return n,blocked,ink
+  assert(n>10)
 end
-local closed,blocked=shapes(0,false,true)
-assert(closed>200 and blocked)
-local open,blocked2=shapes(0,true,true)
-assert(open>200 and not blocked2)
-local seen_layout={}
-for i=1,52 do
-  local n,gap,hash=shapes(i,true,false)
-  assert(n>150 and not gap and room_title(i)~=room_title(0))
-  local _,_,same=shapes(i,true,false)
-  assert(same==hash);seen_layout[hash]=true
+load("cabin")
+record(build_room)
+local function shapes(i,doors,blinds,panes,omit)
+  local l=cabin_layouts[i+1]
+  local n,lights,glass,water,ink=0,0,0,0,0
+  local openings={{0,l.depth},{0,-l.depth},{l.width,0},{-l.width,0}}
+  local blocked={}
+  build_room(i,31+i,doors,blinds,panes,omit,function(x,y,z,w,h,d,c,mat,yaw,roll,radius)
+    assert(w>0 and h>0 and d>0 and math.type(c)=="integer")
+    if radius then assert(radius>0 and mat==7); lights=lights+1 end
+    if mat==8 then glass=glass+1 end
+    if mat==9 then water=water+1 end
+    ink=ink+c+math.floor((x*13+y*17+z*19+(yaw or 0)*31)*100)
+    n=n+1
+    for k,o in ipairs(openings) do
+      local dx,dz=o[1]-x,o[2]-z
+      local cs,sn=math.cos(yaw or 0),math.sin(yaw or 0)
+      if math.abs(dx*cs+dz*sn)<w/2 and math.abs(dz*cs-dx*sn)<d/2 and math.abs(y-1.65)<h/2 then blocked[k]=true end
+    end
+  end)
+  assert(n>140 and glass==8 and (water==1)==(i==1)); if i==0 then assert(lights==2) end
+  return blocked,ink,n
 end
-local unique=0;for _ in pairs(seen_layout) do unique=unique+1 end;assert(unique>20)
+for i=0,#cabin_layouts-1 do
+  local closed,ink,count=shapes(i,0,0,0,-1)
+  local opened=shapes(i,15,0,0,0)
+  for wall=1,3 do assert(closed[wall] and not opened[wall]) end
+  if cabin_layouts[i+1].balcony then assert(closed[4] and not opened[4]) end
+  local _,lower,more=shapes(i,0,255,0,-1);assert(lower~=ink and more>count)
+  local _,glass=shapes(i,0,0,255,-1);assert(glass~=ink)
+  local _,again=shapes(i,0,0,255,-1);assert(again==glass)
+end
 debug.sethook()
 local total,covered=0,0
 for src,lines in pairs(included) do

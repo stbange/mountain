@@ -116,7 +116,8 @@ static bool cleared(const Game *g, float x, float z) {
     if (!g->cabin.present)
         return false;
     Vec p = cabin_local(&g->cabin, x, z);
-    return fabsf(p.x) < 5.6f && p.z > -5.3f && p.z < 6.9f;
+    const Layout *l = g->rules->layout;
+    return fabsf(p.x) < l->width + 1.2f && p.z > -l->depth - 1.3f && p.z < l->depth + 2.9f;
 }
 static void stone(Mesh *m, float x, float y, float z, float r, uint32_t seed) {
     Vec bottom[7], ring[7], top = {x + r * .04f, y + r * .75f, z - r * .19f};
@@ -409,7 +410,8 @@ static void foundations(Mesh *m, const Forest *forest, const Game *g, Pose pose)
     const Cabin *c = &g->cabin;
     for (int i = -2; i <= 2; i++)
         for (int j = -1; j <= 1; j += 2) {
-            float x = i * 2.05f, z = j * 3.82f;
+            float x = i * (g->rules->layout[0].width - .3f) * .5f,
+                  z = j * (g->rules->layout[0].depth - .18f);
             Vec point = cabin_world(c, x, 0, z);
             float depth = fmaxf(.45f, c->y - height_at(&g->world, point.x, point.z) + .38f);
             bool timber = depth > 1.15f || c->tree_supported;
@@ -446,16 +448,71 @@ void cabin_mesh(Mesh *m, Script *s, const Game *g) {
     Pose p = {{c->x, c->y, c->z}, c->angle};
     if (!c->inside || !c->room)
         foundations(m, &s->forest, g, p);
-    uint64_t index = c->inside ? c->room : 0;
-    script_room(s, m, p, index, c->open, index == 0);
-    if (c->inside || c->open) {
-        p.origin = cabin_world(c, 0, 0, -8.16f);
-        if (index < UINT64_MAX)
-            script_room(s, m, p, index + 1, true, false);
-        if (index > 0) {
-            p.origin = cabin_world(c, 0, 0, 8.16f);
-            script_room(s, m, p, index - 1, c->open, index == 1);
-        }
+    uint32_t id = c->inside ? c->room : 0;
+    const Room *room = cabin_room(&g->book, id);
+    const Layout *layout = &g->rules->layout[room->kind];
+    unsigned doors = cabin_doors(g, id);
+    p.angle += room->turn * (PI / 2);
+    script_room(s, m, p, room, doors, -1);
+    if (!c->inside && !c->open)
+        return;
+    for (int wall = FRONT; wall <= RIGHT_WALL; wall++) {
+        if (!(doors & (1u << wall)) || (wall == FRONT && !id))
+            continue;
+        uint32_t next = wall == FRONT ? room->parent : room->child[wall - REAR];
+        const Room *other = cabin_room(&g->book, next);
+        const Layout *shape = &g->rules->layout[other->kind];
+        Wall opposite = wall == FRONT ? room->incoming : FRONT;
+        Vec edge = {wall == RIGHT_WALL ? layout->width : 0, 0,
+                    wall == FRONT  ? layout->depth
+                    : wall == REAR ? -layout->depth
+                                   : 0};
+        Pose view = {transform(p, edge), c->angle + other->turn * (PI / 2)};
+        Vec offset = {opposite == RIGHT_WALL ? -shape->width - .13f : 0, 0,
+                      opposite == FRONT  ? -shape->depth - .13f
+                      : opposite == REAR ? shape->depth + .13f
+                                         : 0};
+        view.origin = transform(view, offset);
+        size_t start = m->count;
+        int lamps = m->light_count;
+        script_room(s, m, view, other, cabin_doors(g, next), opposite);
+        m->light_count = lamps;
+        /* The fragment shader clips this room to the active doorway for each eye. */
+        for (size_t i = start; i < m->count; i++)
+            m->v[i].material += 16 * (wall + 1);
+    }
+}
+/* Patrols take only the cabin site and clock as inputs. Nothing targets or collides with the hiker.
+ */
+static void patrol(Mesh *m, Script *s, const Game *g, bool giant, int index) {
+    float t = fmod(g->elapsed * (giant ? .013 : .037) + index * .17, 2 * PI);
+    float clearance = 0;
+    for (int i = 0; i < g->rules->layouts; i++) {
+        const Layout *l = &g->rules->layout[i];
+        clearance = fmaxf(clearance, hypotf(l->width + (l->balcony ? 3.2f : 0.f), l->depth));
+    }
+    float rz = clearance + (giant ? 56 : 16), rx = rz + (giant ? 8 : 6);
+    Vec site = cabin_world(&g->cabin, rx * sinf(t), 0, -rz * cosf(t));
+    site.y = fmaxf(height_at(&g->world, site.x, site.z), water_at(&g->world, site.x, site.z));
+    Pose pose = {site, g->cabin.angle + atan2f(rx * cosf(t), -rz * sinf(t))};
+    script_visitor(s, m, pose, giant, (float)g->elapsed * (giant ? .73f : 3.1f) + index);
+}
+static void sheltered_weather(Mesh *m, const Game *g) {
+    bool snow = g->book.weather == LOOKOUT_SNOW;
+    uint32_t seed = g->world.seed;
+    Color col = rgb(snow ? 0xe7eeeb : 0x99b1bd);
+    const Layout *l = cabin_layout(g);
+    float shell = hypotf(l->width + 3.3f, l->depth) + 2;
+    float lift = g->cabin.room ? 9.f + 2.f * (g->cabin.room % 13) : 1.f;
+    for (int i = 0; i < 950; i++) {
+        float a = random2(i, 1, seed) * 2 * PI, rad = shell + random2(i, 2, seed) * 19;
+        float fall = (float)fmod(g->elapsed * (snow ? 2.4 : 9.2) + random2(i, 3, seed) * 21, 21);
+        Vec p = cabin_world(&g->cabin, cosf(a) * rad + .28f * (10 - fall), lift + 13 - fall,
+                            sinf(a) * rad);
+        float size = snow ? .066f : .021f;
+        Vec b = {p.x + size, p.y, p.z + size},
+            c = {p.x + (snow ? .12f : .085f), p.y - (snow ? .09f : .48f), p.z};
+        tri(m, p, b, c, col, col, col, 0);
     }
 }
 void wildlife(Mesh *m, Script *script, const Game *g) {
@@ -474,6 +531,17 @@ void wildlife(Mesh *m, Script *script, const Game *g) {
         else if (a->kind == DEER)
             sprite(m, a->pos.x, a->pos.y, a->pos.z, 2.1f, 1.68f,
                    atan2f(g->z - a->pos.z, g->x - a->pos.x) - PI * .5f, 7, rgb(0xf5e5cd));
+    }
+    if (g->cabin.inside) {
+        if (g->book.predators)
+            for (int i = 0; i < 3; i++)
+                patrol(m, script, g, false, i);
+        if (g->book.giants)
+            patrol(m, script, g, true, 0);
+        if (g->book.weather == LOOKOUT_THUNDER || g->book.weather == LOOKOUT_SNOW)
+            sheltered_weather(m, g);
+        if (g->book.weather != LOOKOUT_CALM)
+            return;
     }
     if (g->weather == 2 && g->world.profile != LUNAR) {
         Vec p = eye(g);

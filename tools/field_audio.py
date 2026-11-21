@@ -57,3 +57,17 @@ for n, pitch in enumerate((261.626, 329.628, 391.995)):
             for i in range(rate)
         ),
     )
+
+
+def thunder():
+    rng = random.Random(2871)
+    low = 0.0
+    for i in range(4 * rate):
+        t = i / rate
+        low = 0.988 * low + 0.012 * rng.uniform(-1, 1)
+        roll = math.sin(2 * math.pi * (41 * t - 0.85 * t * t))
+        echo = 0.58 + 0.42 * math.cos(t * 6.1) ** 2
+        yield min(1, t * 3) * (1 - t / 4) ** 2 * echo * (low * 1.2 + roll * 0.09)
+
+
+write("thunder", thunder())

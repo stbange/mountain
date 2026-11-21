@@ -124,6 +124,8 @@ struct Display {
     GLint shadow_vp, shadow_clock, shadow_pattern, near_light, far_light, light_params;
     GLint sky_fill, bounce, cloud_origin, house_pass, lamps[4], lamp_colour[4];
     int shadow_weather;
+    uint64_t cabin_revision;
+    GLint room_origin, room_axes, lookout;
     uint32_t shadow_notes;
     double life_time;
     float life_hour, life_x, life_z;
@@ -367,6 +369,9 @@ Display *display_open(const char *root) {
     LOC(light_params, "light_params");
     LOC(cloud_origin, "cloud_origin");
     LOC(house_pass, "house");
+    LOC(room_origin, "room_origin");
+    LOC(room_axes, "room_axes");
+    LOC(lookout, "lookout");
     for (int i = 0; i < 4; i++) {
         char name[32];
         snprintf(name, sizeof name, "u_lamps[%d]", i);
@@ -493,7 +498,13 @@ static void scenery(Display *d, Script *s, const Game *g) {
     }
     bool house_in_view = cabin_in_view(g);
     if (!d->valid || site || d->house_in_view != house_in_view || old->open != c->open ||
-        old->inside != c->inside || old->room != c->room) {
+        old->inside != c->inside || old->room != c->room || d->cabin_revision != g->book.revision) {
+        d->cabin_revision = g->book.revision;
+        Cabin frame = cabin_frame(g);
+        const Layout *layout = cabin_layout(g);
+        qUniform3f(d->room_origin, c->x, c->y, c->z);
+        qUniform4f(d->room_axes, cosf(frame.angle), sinf(frame.angle), layout->width,
+                   layout->depth);
         cabin_mesh(&d->scratch, s, g);
         upload(&d->house, &d->scratch, GL_STATIC_DRAW);
         d->life_valid = d->shadows[0].valid = d->shadows[1].valid = false;
@@ -751,7 +762,10 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
                (float)fmod(g->world.oz * (2.32 / 950.0), 256.0));
     Color hor = blend(rgb(0x243047), blend(rgb(0xf2e9ce), rgb(0xfac79d), warm), day);
     Color zen = blend(rgb(0x121c32), blend(rgb(0x689cb3), rgb(0x899daf), warm * .61f), day);
-    float grey = g->weather == 2 ? .67f : (g->weather == 3 ? .45f : (g->weather == 1 ? .22f : 0));
+    unsigned watch = g->cabin.inside ? g->book.weather : LOOKOUT_CALM;
+    int weather = watch == LOOKOUT_FOG ? 3 : watch ? 2 : g->weather;
+    qUniform1i(d->lookout, (int)watch);
+    float grey = weather == 2 ? .67f : (weather == 3 ? .45f : (weather == 1 ? .22f : 0));
     hor = blend(hor, shade(rgb(0xacb7b6), .36f + .64f * day), grey);
     zen = blend(zen, shade(rgb(0x86979c), .35f + .65f * day), grey);
     const Destination *destination = g->world.place;
@@ -778,7 +792,7 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
     qUniform3f(d->soil, soil.r, soil.g, soil.b);
     qUniform3f(d->horizon, hor.r, hor.g, hor.b);
     qUniform3f(d->zenith, zen.r, zen.g, zen.b);
-    qUniform4f(d->air, g->hour, day, warm, profile == LUNAR ? 0 : (float)g->weather);
+    qUniform4f(d->air, g->hour, day, warm, profile == LUNAR && !watch ? 0 : (float)weather);
     qUniform1f(d->clock, g->elapsed);
     qUniform1f(d->season_tint, (float)g->season);
     if (!d->lake_tex || (profile != LUNAR && profile != PRISM))
@@ -867,18 +881,28 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
     mesh_clear(m);
     char title[144], line[144];
     int time = (int)(g->hour * 60);
-    snprintf(title, sizeof title, "%s",
-             g->cabin.inside ? room_name(s, g->cabin.room) : trail_name(g));
+    snprintf(title, sizeof title, "%s", g->cabin.inside ? cabin_layout(g)->name : trail_name(g));
     snprintf(line, sizeof line, "%02d:%02d   %s   %s", time / 60, time % 60,
              g->rules->seasons[g->season], weather_label(g, g->weather));
+    if (g->cabin.inside) {
+        const char *weather[] = {"Calm", "Thunderstorm", "Snowstorm", "Heavy fog"};
+        snprintf(line, sizeof line, "%02d:%02d   %s%s%s", time / 60, time % 60,
+                 weather[g->book.weather], g->book.predators ? "  Wolves" : "",
+                 g->book.giants ? "  Giant" : "");
+    }
     const char *actions[] = {"WASD HIKE  /  P PHOTO  /  H CABIN  /  F1 GUIDE",
                              "E  OPEN DOOR",
                              "E  STEP INSIDE  /  F  CLOSE DOOR",
                              "E  STEP OUTSIDE  /  F  CLOSE DOOR",
-                             "E  NEXT ROOM",
-                             "E  PREVIOUS ROOM",
+                             "E  NEXT ROOM  /  F  CLOSE DOOR",
+                             "E  PREVIOUS ROOM  /  F  CLOSE DOOR",
                              "E  READ FIELD SIGN",
-                             "E  DISCOVER TREASURE"};
+                             "E  DISCOVER TREASURE",
+                             "E  OPEN ROOM DOOR",
+                             "E  OPEN WINDOW  /  J  ADJUST BLIND",
+                             "E  CLOSE WINDOW  /  J  ADJUST BLIND",
+                             "E  OPEN BALCONY DOOR",
+                             "E  CROSS TO OTHER SIDE  /  F  CLOSE DOOR"};
     Color ink = rgb(0x233a31), cream = rgb(0xf0edda);
     quad(m, pixel(6, 7, w, h), pixel(200, 7, w, h), pixel(200, 32, w, h), pixel(6, 32, w, h), ink,
          0);
@@ -896,16 +920,17 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
                                "WASD or arrows: hike / turn",
                                "Drag or left click: look",
                                "H: summon / dismiss cabin",
-                               "E: use   F: open / close front door",
-                               "R: return to hearth room",
+                               "E use   F door   J window blind",
+                               "R return to Hearth Room",
+                               "K shelter weather  L wolves  X giant",
                                "T: time   Y: season   U: weather",
                                "I: cycle seasons   O: weather changes",
                                "N: new trail   B: Taggart Lake",
                                "[ / ]: previous / next destination",
                                "M: sound   P: photo",
                                "F1: close guide   Esc: release mouse"};
-        quad(m, pixel(6, 36, w, h), pixel(244, 36, w, h), pixel(250, 174, w, h),
-             pixel(6, 174, w, h), ink, 0);
+        quad(m, pixel(6, 36, w, h), pixel(244, 36, w, h), pixel(250, 184, w, h),
+             pixel(6, 184, w, h), ink, 0);
         for (int i = 0; i < (int)(sizeof lines / sizeof *lines); i++)
             label(m, lines[i], 12, 43 + i * 10, w, h, cream);
         int found = 0;

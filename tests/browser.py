@@ -207,14 +207,19 @@ def test_desktop(browser, url):
     assert v(page, 10) == 1 and v(page, 11) == 0
     page.click("#use")
     assert v(page, 11) == 1
-    # Walk through the far door with keyboard input.
+    # Walking up to a closed door discovers nothing. Opening it reveals the room before crossing.
     page.mouse.move(500, 350)
     page.mouse.down()
     page.mouse.move(540, 350)
     page.mouse.up()
     page.keyboard.down("w")
-    page.wait_for_function("Module._mountain_value(12)>=1", timeout=30000)
+    page.wait_for_function("Module._mountain_value(13)===8", timeout=30000)
     page.keyboard.up("w")
+    assert v(page, 12) == 0 and v(page, 38) == 1
+    page.click("#use")
+    assert v(page, 12) == 0 and v(page, 38) == 2
+    page.click("#use")
+    assert v(page, 12) == 1
     tap_key(page, "r")
     assert v(page, 12) == 0
     page.click("#use")
@@ -343,12 +348,115 @@ def test_touch(browser, url):
     page.tap("#use")
     page.tap("#use")
     assert v(page, 11)
+    bearing = v(page, 2) + 0.16
+    room_walk(page, bearing, -3.9, 0.85)
+    assert v(page, 13) == 9
+    page.tap("#use")
+    page.tap("#blind")
+    assert v(page, 13) == 10 and v(page, 42)
+    page.tap("#cabin")
+    assert v(page, 13) == 3
     page.set_viewport_size({"width": 800, "height": 390})
     assert page.locator("#camera").is_visible()
     assert page.evaluate("document.documentElement.scrollWidth===window.innerWidth")
     ctx.close()
     print(
         "Real browser touch movement, looking, door controls and rotation passed.",
+        flush=True,
+    )
+
+
+def room_walk(page, bearing, dx, dz):
+    # Relative metre offsets driven through the same walk and look inputs as the keyboard.
+    page.evaluate(
+        """([bearing,dx,dz])=>{
+      const m=Module, dir=bearing+Math.atan2(dx,-dz);
+      m._mountain_look(dir-val(2),-val(3));
+      let left=Math.hypot(dx,dz)/3.71;
+      while(left>0){const dt=Math.min(.08,left);m._mountain_walk(dt,1,0);left-=dt;}
+      refresh();
+    }""",
+        [bearing, dx, dz],
+    )
+
+
+def test_cabin(browser, url):
+    ctx = browser.new_context(viewport={"width": 1100, "height": 720})
+    page = ctx.new_page()
+    ready(page, url)
+    page.evaluate("Module._mountain_pause(1)")
+    bearing = v(page, 2)
+    page.keyboard.press("r")
+    assert v(page, 11) and v(page, 38) == 1
+    room_walk(page, bearing, 3.6, -2.65)
+    assert v(page, 13) == 8
+    before = frame(page)
+    page.click("#use")
+    preview = frame(page)
+    assert (
+        v(page, 38) == 2 and v(page, 12) == 0 and before.tobytes() != preview.tobytes()
+    )
+    page.click("#use")
+    assert page.locator("h1").text_content() == "The winter garden"
+    turn = bearing + 1.57079632679
+    room_walk(page, turn, -11.45, -8.15)
+    assert v(page, 13) == 11
+    page.click("#use")
+    page.click("#use")
+    assert v(page, 11) and v(page, 13) == 12
+    page.click("#conditions")
+    page.get_by_role("button", name="Heavy fog", exact=True).click()
+    page.get_by_label("Watch a wolf pack").check()
+    page.get_by_label("Watch a ridge giant").check()
+    page.keyboard.press("Escape")
+    assert v(page, 39) == 3 and v(page, 40) and v(page, 41) and v(page, 35) == 0
+    page.evaluate("Module._mountain_pause(1)")
+    page.click("#use")
+    room_walk(page, turn, -0.32, -5.4)
+    assert v(page, 13) == 9
+    # Face the window from the gallery so its independent mechanisms occupy the frame.
+    page.evaluate(
+        "yaw=>{Module._mountain_look(yaw-val(2),-val(3));refresh()}",
+        turn - 1.57079632679,
+    )
+    glazed = frame(page)
+    page.evaluate("Module._mountain_action(11)")
+    clear_view = frame(page)
+    assert v(page, 39) == 0 and clear_view.tobytes() != glazed.tobytes()
+    page.evaluate("()=>{for(let i=0;i<3;i++)Module._mountain_action(11)}")
+    page.click("#use")
+    plain = frame(page)
+    assert v(page, 13) == 10 and glazed.tobytes() != plain.tobytes()
+    page.click("#blind")
+    shutter = frame(page)
+    assert v(page, 42) and shutter.tobytes() != plain.tobytes()
+    page.keyboard.press("r")
+    assert not v(page, 12)
+    room_walk(page, bearing, 3.6, -2.65)
+    page.click("#door")
+    assert v(page, 13) == 8
+    ready(page, url)
+    assert v(page, 38) == 2 and v(page, 39) == 3 and v(page, 40) and v(page, 41)
+    page.evaluate("()=>{Module._mountain_pause(1);Module._mountain_visit(7);refresh()}")
+    bearing = v(page, 2)
+    page.keyboard.press("r")
+    room_walk(page, bearing, 3.6, -2.65)
+    assert v(page, 13) == 8
+    page.click("#use")
+    page.click("#use")
+    turn = bearing + 1.57079632679
+    room_walk(page, turn, -11.45, -13.55)
+    assert v(page, 13) == 10 and v(page, 42) and v(page, 38) == 2
+    page.click("#blind")
+    assert not v(page, 42)
+    page.click("#conditions")
+    page.get_by_role("button", name="Calm", exact=True).click()
+    page.get_by_label("Watch a wolf pack").uncheck()
+    page.get_by_label("Watch a ridge giant").uncheck()
+    assert not v(page, 39) and not v(page, 40) and not v(page, 41)
+    ctx.close()
+    print(
+        "Cabin doors, room previews, balcony, panes, blinds and cross-world save reload passed.",
         flush=True,
     )
 
@@ -394,6 +502,10 @@ def test_lighting(browser, url):
     clear = frame(page)
     page.evaluate("Module._mountain_conditions(1,2,9)")
     assert frame(page).tobytes() == clear.tobytes()
+    page.evaluate(
+        "()=>{for(const action of [11,12,13])Module._mountain_action(action)}"
+    )
+    assert frame(page).tobytes() == clear.tobytes()
     assert page.evaluate("Module.canvas.getContext('webgl2').getError()") == 0
     ctx.close()
     print(
@@ -415,6 +527,7 @@ def test_headset(browser, url):
     assert len(stereo) == 2 and stereo[0] == stereo[1] and any(stereo[0])
     assert eyes[0][1] > 20 and eyes[1][1] > 20 and eyes[0][0] != eyes[1][0], eyes
     assert v(page, 15) > 0
+    page.evaluate("testHeadset.session.inputSources[0].gamepad.axes=[0,0,0,0]")
     page.evaluate(
         "testHeadset.yaw=.4;testHeadset.session.dispatchEvent(new Event('squeeze'))"
     )
@@ -433,6 +546,23 @@ def test_headset(browser, url):
     )
     page.wait_for_function("Module._mountain_value(6)===1")
     assert v(page, 5) == 2
+    page.evaluate("""()=>{
+      const session=testHeadset.session;
+      session.inputSources[0].gamepad.axes=[0,0,0,0];
+      session.dispatchEvent(new Event('select'));
+      session.dispatchEvent(new Event('select'));
+    }""")
+    assert v(page, 11)
+    room_walk(page, v(page, 2) + 0.16, -3.9, 0.85)
+    assert v(page, 13) == 9
+    page.evaluate("""()=>{
+      const session=testHeadset.session;
+      session.dispatchEvent(new Event('select'));
+      const e=new Event('squeeze');e.inputSource={handedness:'left'};session.dispatchEvent(e);
+    }""")
+    assert v(page, 13) == 10 and v(page, 42)
+    page.evaluate("testHeadset.session.dispatchEvent(new Event('squeeze'))")
+    assert not v(page, 12) and v(page, 13) == 3
     page.evaluate("testHeadset.session.end()")
     assert page.evaluate("mountainXR.session===null")
     assert max(ImageStat.Stat(frame(page)).stddev) > 15
@@ -467,7 +597,13 @@ if __name__ == "__main__":
     p.add_argument("--url")
     args = p.parse_args()
     with site(args) as url, sync_playwright() as driver:
-        for playtest in (test_desktop, test_touch, test_headset, test_lighting):
+        for playtest in (
+            test_desktop,
+            test_touch,
+            test_headset,
+            test_lighting,
+            test_cabin,
+        ):
             browser = driver.chromium.launch(
                 executable_path=os.environ.get("CHROMIUM") or None,
                 args=[

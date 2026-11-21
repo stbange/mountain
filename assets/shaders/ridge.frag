@@ -28,6 +28,27 @@ uniform sampler2D u_far_depth;
 uniform mat4 u_near_light;
 uniform mat4 u_far_light;
 uniform int u_house;
+uniform vec3 u_room_origin;
+uniform vec4 u_room_axes; // cosine, sine, half width and half depth
+uniform int u_lookout;
+vec3 roomLocal(vec3 p) {
+    vec3 d=p-u_room_origin;
+    return vec3(dot(d.xz,u_room_axes.xy),d.y,d.z*u_room_axes.x-d.x*u_room_axes.y);
+}
+bool throughDoor(float group) {
+    vec3 a=roomLocal(u_eye), b=roomLocal(v_pos);
+    bool side=group>2.5;
+    float wall=side?u_room_axes.z:(group<1.5?u_room_axes.w:-u_room_axes.w);
+    float delta=side?b.x-a.x:b.z-a.z;
+    if(abs(delta)<.00001) return false;
+    float t=(wall-(side?a.x:a.z))/delta;
+    vec3 p=mix(a,b,t);
+    return t>=0.0 && t<=1.002 && abs(side?p.z:p.x)<.916 && p.y>=-.05 && p.y<2.39;
+}
+float distantFlash() {
+    float t=mod(u_clock,19.0);
+    return smoothstep(2.6,2.78,t)*(1.0-smoothstep(2.78,3.35,t));
+}
 uniform vec4 u_lamps[4]; // world position and radius, zero for unused slots
 uniform vec3 u_lamp_colour[4];
 
@@ -148,18 +169,29 @@ void main() {
                 sky=mix(sky,mix(u_soil,vec3(1),.50),smoothstep(.9995,.99965,small));
             }
         }
+        if(u_lookout==1) sky+=vec3(.22,.25,.32)*distantFlash()*(.25+.75*cloud);
+        if(u_lookout==2 || u_lookout==3) sky=mix(sky,u_horizon,u_lookout==3?.80:.49);
         FRAGMENT=vec4(sky+grain,1); return;
     }
     float dist=length(v_pos-u_eye);
-    float mat=v_uvm.z;
+    float group=floor((v_uvm.z+.10)/16.0);
+    if(group>0.0 && !throughDoor(group)) discard;
+    float mat=v_uvm.z-16.0*group;
     vec2 groundUV=mod(v_pos.xz+u_pattern.xz,4096.0);
     if(u_reflection==1 && (v_pos.y<u_water || (mat>1.5 && mat<2.5))) discard;
     vec3 geometric=cross(dFdx(v_pos),dFdy(v_pos));
     vec3 normal=geometric*inversesqrt(max(dot(geometric,geometric),1.e-16));
     if(dot(normal,u_eye-v_pos)<0.0) normal=-normal;
     vec3 col=v_colour;
-    if(mat>.5 && mat<1.5) {
-        col*=foliage(v_pos,v_uvm);
+    if(mat>7.5 && mat<8.5) {
+        // Sparse glass glints keep the outdoor colour and depth visible at the game's pixel scale.
+        if(mod(floor(gl_FragCoord.x)+3.0*floor(gl_FragCoord.y),11.0)>0.5) discard;
+        col=mix(u_horizon,vec3(.66,.79,.79),.25)*(.42+.58*day);
+    } else if(mat>8.5 && mat<9.5) {
+        float ripple=noise(vec2(groundUV.x*.6+u_clock*.22,groundUV.y*2.8-u_clock*.14));
+        col+=vec3(.14,.25,.22)*smoothstep(.52,.86,ripple);
+    } else if(mat>.5 && mat<1.5) {
+        col*=foliage(v_pos,vec3(v_uvm.xy,mat));
     } else if(mat>1.5 && mat<2.5) {
         float ribbon=noise(vec2(groundUV.x*.14+u_clock*.16,groundUV.y*1.65+u_clock*.085));
         float remote=smoothstep(45.0,360.0,dist);
@@ -172,7 +204,7 @@ void main() {
         col+=vec3(.11,.14,.13)*smoothstep(.72,.92,ribbon)*(.30+.70*day);
         FRAGMENT=vec4(col+grain,1);return;
     } else if(mat>4.5 && mat<5.5) {
-        col*=foliage(v_pos,v_uvm);
+        col*=foliage(v_pos,vec3(v_uvm.xy,mat));
     } else if(mat>2.5 && mat<3.5) {
         float rings=noise(vec2((groundUV.x+groundUV.y)*3.1,v_pos.y*34.0));
         col*=.92+.15*rings;
@@ -205,11 +237,17 @@ void main() {
         // Needles and leaves scatter light through both sides of their silhouettes.
         direct=.36+.64*abs(dot(normal,u_sun));
     }
+    if(group>.5) direct*=.08; // The folded room is enclosed by its own roof.
     col*=pow(max(vec3(.001),irradiance(normal,direct,v_pos)),vec3(1.0/2.2));
-    if(mat>6.5) col=mix(col,v_colour,.82*(1.0-day));
+    if(mat>6.5 && mat<7.5) col=mix(col,v_colour,.82*(1.0-day));
     float fograte=weather==3.0?.0065:(weather==2.0?.0037:(weather==1.0?.0019:.00078));
     if(mat>5.5 && mat<6.5)col=v_colour*(1.0+.11*sin(u_clock*1.8+v_pos.y));
     if(u_profile==7)fograte=0.0;
+    if(u_house==0) {
+        if(u_lookout==1) {fograte=.010; col+=vec3(.12,.14,.17)*distantFlash();}
+        if(u_lookout==2) fograte=.024;
+        if(u_lookout==3) fograte=.065;
+    } else fograte=.0005;
     float fog=1.0-exp(-dist*fograte);
     vec3 fogcol=mix(u_horizon,mix(vec3(.43,.53,.63),vec3(.62,.69,.72),day),.48*day);
     col=mix(col,fogcol,fog*.91);

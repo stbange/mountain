@@ -288,6 +288,28 @@ static bool load_landmarks(Script *s, const char *assets) {
     }
     return true;
 }
+static int read_layouts(lua_State *L) {
+    Rules *rules = lua_touserdata(L, lua_upvalueindex(1));
+    luaL_checktype(L, 1, LUA_TTABLE);
+    int n = (int)lua_rawlen(L, 1);
+    if (n < 3 || n > CABIN_LAYOUTS)
+        return luaL_error(L, "cabin_layouts needs 3 to 16 room types");
+    rules->layouts = n;
+    for (int i = 0; i < n; i++) {
+        lua_geti(L, 1, i + 1);
+        Layout *l = &rules->layout[i];
+        lua_getfield(L, 2, "name");
+        snprintf(l->name, sizeof l->name, "%s", luaL_checkstring(L, -1));
+        lua_pop(L, 1);
+        l->width = number(L, 2, "width", 3.5f, 64);
+        l->depth = number(L, 2, "depth", 3.5f, 64);
+        l->height = number(L, 2, "height", 3, 32);
+        lua_getfield(L, 2, "balcony");
+        l->balcony = lua_toboolean(L, -1);
+        lua_pop(L, 2);
+    }
+    return 0;
+}
 bool script_load(Script *s, const char *assets) {
     memset(s, 0, sizeof *s);
     s->L = luaL_newstate();
@@ -323,7 +345,11 @@ bool script_load(Script *s, const char *assets) {
     snprintf(path, sizeof path, "%s/scripts/cabin.lua", assets);
     if (luaL_dofile(L, path) != LUA_OK)
         return failure(s);
-    luaL_checkstack(L, 8, "cabin");
+    lua_pushlightuserdata(L, &s->rules);
+    lua_pushcclosure(L, read_layouts, 1);
+    lua_getglobal(L, "cabin_layouts");
+    if (lua_pcall(L, 1, 0, 0) != LUA_OK)
+        return failure(s);
     return true;
 }
 void script_close(Script *s) {
@@ -364,31 +390,21 @@ static int emit(lua_State *L) {
     tilted_box(b->m, local, (Vec){0}, size, color, (float)mat, (float)luaL_optnumber(L, 10, 0));
     return 0;
 }
-bool script_room(Script *s, Mesh *m, Pose p, uint64_t index, bool open, bool front) {
+bool script_room(Script *s, Mesh *m, Pose p, const Room *room, unsigned doors, int omit_door) {
     lua_State *L = s->L;
     Builder b = {m, p};
     lua_getglobal(L, "build_room");
-    lua_pushinteger(L, (lua_Integer)(index ? 1 + (index - 1) % 2147483646u : 0));
-    lua_pushboolean(L, open);
-    lua_pushboolean(L, front);
+    lua_pushinteger(L, room->kind);
+    lua_pushinteger(L, room->key);
+    lua_pushinteger(L, doors);
+    lua_pushinteger(L, room->blinds);
+    lua_pushinteger(L, room->panes);
+    lua_pushinteger(L, omit_door);
     lua_pushlightuserdata(L, &b);
     lua_pushcclosure(L, emit, 1);
-    if (lua_pcall(L, 4, 0, 0) != LUA_OK)
+    if (lua_pcall(L, 7, 0, 0) != LUA_OK)
         return failure(s);
     return !m->failed;
-}
-const char *room_name(Script *s, uint64_t index) {
-    lua_State *L = s->L;
-    lua_getglobal(L, "room_title");
-    lua_pushinteger(L, (lua_Integer)(index ? 1 + (index - 1) % 2147483646u : 0));
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        failure(s);
-        return "Cabin";
-    }
-    const char *title = lua_tostring(L, -1);
-    snprintf(s->label, sizeof s->label, "%s", title ? title : "Cabin");
-    lua_pop(L, 1);
-    return s->label;
 }
 
 /* Each animal part sweeps a tapered volume between two anatomical landmarks.
@@ -447,6 +463,20 @@ bool script_animal(Script *s, Mesh *m, const Animal *a, int season) {
     lua_pushlightuserdata(L, &builder);
     lua_pushcclosure(L, animal_part, 1);
     if (lua_pcall(L, 6, 0, 0) != LUA_OK)
+        return failure(s);
+    return !m->failed;
+}
+
+bool script_visitor(Script *s, Mesh *m, Pose pose, bool giant, float stride) {
+    lua_State *L = s->L;
+    Animal model = {.pos = pose.origin, .yaw = pose.angle, .size = 1};
+    AnimalBuilder builder = {m, &model};
+    lua_getglobal(L, "build_visitor");
+    lua_pushboolean(L, giant);
+    lua_pushnumber(L, stride);
+    lua_pushlightuserdata(L, &builder);
+    lua_pushcclosure(L, animal_part, 1);
+    if (lua_pcall(L, 3, 0, 0) != LUA_OK)
         return failure(s);
     return !m->failed;
 }
