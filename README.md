@@ -97,7 +97,7 @@ In **Trail conditions**, choose one of three local phenomena and switch either s
 | Control | Desktop | Touch web |
 | --- | --- | --- |
 | Move | W A S D or up/down arrows | Thumb pad |
-| Look | Drag the web view or use left/right arrows. On native, click to capture the mouse and Esc to release it. | Drag the landscape |
+| Look | Click the landscape to capture the mouse. Press Esc to release it. On the web, you can also drag the view or use left/right arrows. | Drag the landscape |
 | Summon or dismiss the cabin outdoors | H | Cabin button |
 | Open a door or cross the nearby threshold | E or walk through an open door | Door prompt or thumb pad |
 | Close or reopen any door from either side | F beside the door | Close door or Open door |

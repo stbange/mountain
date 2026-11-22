@@ -14,7 +14,15 @@ Windows, Linux and Web builds SHALL use the same C11 simulation, Lua scripts, SD
 - **THEN** its settings take effect without rebuilding the binary
 
 ### Requirement: Device controls
-The web build SHALL provide touch controls on touch devices and stereo views from the headset pose in an available immersive WebXR session.
+The web build SHALL support mouse capture on desktop browsers with Pointer Lock, touch controls on touch devices and stereo views from the headset pose in an available immersive WebXR session.
+
+#### Scenario: Look with a captured mouse
+- **WHEN** a desktop player clicks the landscape with the primary mouse button
+- **THEN** mouse movement turns the view without dragging, and pressing Escape or opening a game panel releases the cursor
+
+#### Scenario: Look with the cursor free
+- **WHEN** the cursor is free or the browser declines capture
+- **THEN** dragging the landscape and using the left and right arrow keys still turn the view
 
 #### Scenario: Walk on a phone
 - **WHEN** a touch player uses the movement pad and drags the scenery

@@ -57,7 +57,7 @@
       <canvas
         id="canvas"
         tabindex="0"
-        aria-label="Mountain landscape. Move with WASD or arrow keys and drag to look."
+        aria-label="Mountain landscape. Move with WASD. Drag or use left and right arrows to look. Click to capture the mouse and press Escape to release it."
       ></canvas>
       <div class="shading"></div>
       <button id="map" class="glass map-control">
@@ -128,7 +128,9 @@
             ><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span
           >
           Move</span
-        ><span class="desktop"><i class="icon i-look"></i> Drag to look</span
+        ><span class="desktop"
+          ><i class="icon i-look"></i
+          ><span id="look-hint" role="status">Drag to look</span></span
         ><span class="touch-hint"
           ><i class="icon i-compass"></i> Drag to explore</span
         >

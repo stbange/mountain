@@ -174,6 +174,46 @@ def walk_sahara_discovery(page, url):
     page.click("#cabin")
 
 
+def check_mouse_look(page):
+    angle = v(page, 2)
+    page.mouse.move(580, 310)
+    page.mouse.down()
+    page.mouse.move(615, 296, steps=4)
+    page.mouse.up()
+    assert abs(v(page, 2) - angle) > 0.04
+    assert page.evaluate("document.pointerLockElement===null")
+    page.mouse.click(580, 310)
+    page.wait_for_function("document.pointerLockElement===Module.canvas")
+    angle, pitch = v(page, 2), v(page, 3)
+    page.mouse.move(615, 290)
+    assert abs(v(page, 2) - angle) > 0.04 and v(page, 3) > pitch + 0.03
+    page.mouse.click(615, 290)
+    assert page.evaluate("document.pointerLockElement===Module.canvas")
+    page.keyboard.press("g")
+    page.wait_for_function("document.pointerLockElement===null")
+    assert page.locator("#sheet-title").text_content() == "Field guide"
+    page.click("#close")
+    page.mouse.click(580, 310)
+    page.wait_for_function("document.pointerLockElement===Module.canvas")
+    page.keyboard.press("Escape")
+    page.wait_for_function("document.pointerLockElement===null")
+    angle, pitch = v(page, 2), v(page, 3)
+    page.mouse.move(615, 290)
+    assert (v(page, 2), v(page, 3)) == (angle, pitch)
+    # A rejected request keeps unlocked drag-to-look available.
+    page.evaluate("""() => {
+      Module.canvas.requestPointerLock = () =>
+        Promise.reject(new DOMException("Declined", "NotAllowedError"));
+    }""")
+    page.mouse.click(580, 310)
+    assert page.evaluate("document.pointerLockElement===null")
+    page.mouse.down()
+    page.mouse.move(625, 310)
+    page.mouse.up()
+    assert abs(v(page, 2) - angle) > 0.04
+    page.evaluate("delete Module.canvas.requestPointerLock")
+
+
 def test_desktop(browser, url):
     ctx = browser.new_context(
         viewport={"width": 1200, "height": 760}, accept_downloads=True
@@ -188,12 +228,7 @@ def test_desktop(browser, url):
     page.keyboard.down("w")
     page.wait_for_function("Module._mountain_value(15)>.08")
     page.keyboard.up("w")
-    angle = v(page, 2)
-    page.mouse.move(580, 310)
-    page.mouse.down()
-    page.mouse.move(615, 296, steps=4)
-    page.mouse.up()
-    assert abs(v(page, 2) - angle) > 0.04
+    check_mouse_look(page)
     page.click("#map")
     assert page.locator(".map-frame").evaluate("(c)=>c.width") > 100
     before = page.locator(".map-frame").evaluate("(c)=>c.toDataURL()")
@@ -296,7 +331,7 @@ def test_desktop(browser, url):
     assert not errors, errors
     ctx.close()
     print(
-        "Desktop hiking, summit map, all twelve atlas photographs, Sahara discovery, journal reload, cabin, climate and PNG passed.",
+        "Desktop mouse capture, hiking, summit map, all twelve atlas photographs, Sahara discovery, journal reload, cabin, climate and PNG passed.",
         flush=True,
     )
 
@@ -337,6 +372,8 @@ def test_touch(browser, url):
     event("touchMove", 204, 300)
     event("touchEnd")
     assert abs(v(page, 2) - angle) > 0.1
+    page.touchscreen.tap(204, 300)
+    assert page.evaluate("document.pointerLockElement===null")
     page.get_by_role("button", name="Season and weather", exact=True).tap()
     page.get_by_role("button", name="Spring", exact=True).tap()
     page.get_by_role("button", name="Mist", exact=True).tap()

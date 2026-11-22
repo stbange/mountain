@@ -19,6 +19,7 @@ window.mountainXR = {
         optionalFeatures: ["local-floor"],
       });
       this.session = session;
+      window.releaseMouse?.();
       const gl = canvas.getContext("webgl2");
       await gl.makeXRCompatible();
       const layer = new XRWebGLLayer(session, gl, {
