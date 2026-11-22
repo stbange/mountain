@@ -17,6 +17,23 @@ const state = {
   db: null,
   toastTimer: 0,
 };
+const canLockMouse = typeof canvas.requestPointerLock === "function";
+function mouseLocked() {
+  return document.pointerLockElement === canvas;
+}
+function releaseMouse() {
+  if (!mouseLocked()) return false;
+  document.exitPointerLock();
+  return true;
+}
+function canLook() {
+  return (
+    state.ready &&
+    !sheet.open &&
+    !document.hidden &&
+    !window.mountainXR?.session
+  );
+}
 const val = (id) => Module._mountain_value(id);
 const nameOf = (id) =>
   Module.ccall("mountain_label", "string", ["number"], [id]);
@@ -175,6 +192,10 @@ function stop() {
   $("pad").firstElementChild.style.transform = "";
   walk();
 }
+function suspendInput() {
+  releaseMouse();
+  stop();
+}
 function act(action) {
   if (!state.ready) return;
   const reading = action === 2 && [6, 7].includes(val(13));
@@ -217,7 +238,7 @@ function mode(on) {
 }
 function openSheet(title, category, wide = false) {
   if (!state.ready) return false;
-  stop();
+  suspendInput();
   Module._mountain_pause(1);
   $("sheet-title").textContent = title;
   $("sheet-category").textContent = category;
@@ -769,7 +790,12 @@ function guide() {
         ["Field cookbook", "Q · browse anywhere, cook in the Hearth Room"],
         ["Balcony table", "Z sit or stand · 1 sip · 2 eat"],
         ["Walk", "W A S D · ↑ ↓"],
-        ["Look around", "Drag the view · ← →"],
+        [
+          "Look around",
+          canLockMouse
+            ? "Click the view to capture the mouse · Esc to release · Drag or ← →"
+            : "Drag the view · ← →",
+        ],
         ["Summon or dismiss your shelter", "H · outdoors"],
         ["Use a door or read a field sign", "E · beside it"],
         ["Open or close a door", "F · beside it"],
@@ -1083,7 +1109,9 @@ window.addEventListener("keydown", (e) => {
     y: () => act(4),
     u: () => act(5),
     t: () => act(3),
-    escape: () => mode(false),
+    escape: () => {
+      if (!releaseMouse()) mode(false);
+    },
   };
   if (actions[k]) {
     e.preventDefault();
@@ -1094,15 +1122,15 @@ window.addEventListener("keyup", (e) => {
   state.keys.delete(e.key.toLowerCase());
   walk();
 });
-window.addEventListener("blur", stop);
+window.addEventListener("blur", suspendInput);
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) stop();
+  if (document.hidden) suspendInput();
 });
 function dragSurface(node, start, move, end) {
   let active = null,
     last = null;
   node.addEventListener("pointerdown", (e) => {
-    if (active !== null || !state.ready) return;
+    if (active !== null || !state.ready || document.pointerLockElement) return;
     e.preventDefault();
     active = e.pointerId;
     last = [e.clientX, e.clientY];
@@ -1117,17 +1145,60 @@ function dragSurface(node, start, move, end) {
   const release = (e) => {
     if (active === e.pointerId) {
       active = null;
-      end();
+      end(e);
     }
   };
   for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
     node.addEventListener(type, release);
 }
+function lookBy(dx, dy) {
+  if (canLook()) Module._mountain_look(dx * 0.004, -dy * 0.004);
+}
+const lookHint = $("look-hint");
+const freeLookHint = canLockMouse ? "Click to look" : "Drag to look";
+if (lookHint) lookHint.textContent = freeLookHint;
+document.addEventListener("pointerlockchange", () => {
+  if (mouseLocked() && !canLook()) {
+    releaseMouse();
+    return;
+  }
+  if (lookHint)
+    lookHint.textContent = mouseLocked()
+      ? "Esc to release mouse"
+      : freeLookHint;
+});
+document.addEventListener("mousemove", (e) => {
+  if (mouseLocked()) lookBy(e.movementX, e.movementY);
+});
+let dragDistance = 0;
 dragSurface(
   canvas,
-  () => canvas.focus({ preventScroll: true }),
-  (e, dx, dy) => Module._mountain_look(dx * 0.004, -dy * 0.004),
-  () => {},
+  () => {
+    dragDistance = 0;
+    canvas.focus({ preventScroll: true });
+  },
+  (e, dx, dy) => {
+    dragDistance += Math.abs(dx) + Math.abs(dy);
+    if (!mouseLocked()) lookBy(dx, dy);
+  },
+  async (e) => {
+    // Request pointer lock on mouse clicks and keep drag gestures available.
+    if (
+      !canLockMouse ||
+      e.type !== "pointerup" ||
+      e.pointerType !== "mouse" ||
+      e.button !== 0 ||
+      dragDistance > 4 ||
+      !canLook() ||
+      document.pointerLockElement
+    )
+      return;
+    try {
+      await canvas.requestPointerLock();
+    } catch {
+      // Drag and arrow controls are available if the browser declines capture.
+    }
+  },
 );
 const pad = $("pad");
 function stick(e) {
