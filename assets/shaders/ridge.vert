@@ -7,6 +7,8 @@ uniform vec3 u_eye;
 uniform vec3 u_pattern;
 uniform float u_clock;
 uniform int u_layer;
+uniform int u_lookout;
+uniform int u_house;
 OUT vec3 v_pos;
 OUT vec3 v_colour;
 OUT vec3 v_uvm;
@@ -18,6 +20,10 @@ void main() {
             float tip=1.0-fract(a_uvm.y*4.0);
             vec2 wind=mod(a_pos.xz+u_pattern.xz,4096.0);
             v_pos.x+=tip*tip*(.055*sin(u_clock*1.7+wind.y*.35)+.03*sin(u_clock*2.1+wind.x*.42));
+        }
+        if(u_lookout==3 && u_house==0) {
+            float dist=length(a_pos-u_eye);
+            v_pos.y+=sin(a_pos.x*.29+u_clock*2.1+sin(a_pos.z*.17))*smoothstep(24.0,195.0,dist)*.51;
         }
         gl_Position=u_vp*vec4(v_pos,1.0);
         v_dist=length(a_pos-u_eye);

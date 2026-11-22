@@ -30,7 +30,8 @@ uniform mat4 u_far_light;
 uniform int u_house;
 uniform vec3 u_room_origin;
 uniform vec4 u_room_axes; // cosine, sine, half width and half depth
-uniform int u_lookout;
+uniform int u_lookout; // 0 calm, 1 event, 2 lightning, 3 heat shimmer
+uniform vec4 u_event_air; // sunlight tint and extinction per metre
 vec3 roomLocal(vec3 p) {
     vec3 d=p-u_room_origin;
     return vec3(dot(d.xz,u_room_axes.xy),d.y,d.z*u_room_axes.x-d.x*u_room_axes.y);
@@ -169,8 +170,12 @@ void main() {
                 sky=mix(sky,mix(u_soil,vec3(1),.50),smoothstep(.9995,.99965,small));
             }
         }
-        if(u_lookout==1) sky+=vec3(.22,.25,.32)*distantFlash()*(.25+.75*cloud);
-        if(u_lookout==2 || u_lookout==3) sky=mix(sky,u_horizon,u_lookout==3?.80:.49);
+        if(u_lookout!=0) {
+            vec3 veil=u_event_air.rgb*(.25+.75*day);
+            sky=mix(sky,veil,min(.87,u_event_air.w*17.0)*(.65+.35*(1.0-h)));
+            if(u_lookout==2) sky+=vec3(.22,.25,.32)*distantFlash()*(.25+.75*cloud);
+            if(u_lookout==3) sky+=vec3(.16,.11,.046)*(1.0-smoothstep(0.0,.14,h))*day;
+        }
         FRAGMENT=vec4(sky+grain,1); return;
     }
     float dist=length(v_pos-u_eye);
@@ -243,13 +248,14 @@ void main() {
     float fograte=weather==3.0?.0065:(weather==2.0?.0037:(weather==1.0?.0019:.00078));
     if(mat>5.5 && mat<6.5)col=v_colour*(1.0+.11*sin(u_clock*1.8+v_pos.y));
     if(u_profile==7)fograte=0.0;
-    if(u_house==0) {
-        if(u_lookout==1) {fograte=.010; col+=vec3(.12,.14,.17)*distantFlash();}
-        if(u_lookout==2) fograte=.024;
-        if(u_lookout==3) fograte=.065;
-    } else fograte=.0005;
-    float fog=1.0-exp(-dist*fograte);
     vec3 fogcol=mix(u_horizon,mix(vec3(.43,.53,.63),vec3(.62,.69,.72),day),.48*day);
+    if(u_house==1) fograte=.0005;
+    else if(u_lookout!=0) {
+        fograte=u_event_air.w;
+        fogcol=u_event_air.rgb*(.25+.75*day);
+        if(u_lookout==2) col+=vec3(.12,.14,.17)*distantFlash();
+    }
+    float fog=1.0-exp(-dist*fograte);
     col=mix(col,fogcol,fog*.91);
     FRAGMENT=vec4(col+grain,1);
 }
