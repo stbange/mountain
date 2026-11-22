@@ -123,6 +123,30 @@ static bool expedition_walk(int id) {
     return true;
 }
 
+static bool shelter_playtest(int id) {
+    REQUIRE(mountain_visit(id));
+    mountain_conditions(1, 0, 12);
+    REQUIRE(mountain_action(ACT_CABIN) && mountain_value(13) == NEAR_OPEN);
+    mountain_frame();
+    uint32_t closed = display_sample(480, 300);
+    REQUIRE(mountain_action(ACT_USE) && mountain_value(13) == NEAR_ENTER);
+    mountain_frame();
+    REQUIRE(display_sample(480, 300) != closed);
+    REQUIRE(mountain_action(ACT_USE) && mountain_value(11));
+    REQUIRE(*mountain_label(12) && *mountain_label(13) && *mountain_label(14));
+    REQUIRE(mountain_action(ACT_LOOKOUT_PREDATORS) && mountain_action(ACT_LOOKOUT_GIANTS));
+    for (int mode = 1; mode <= 3; mode++) {
+        REQUIRE(mountain_action(ACT_LOOKOUT_WEATHER) && mountain_value(39) == mode &&
+                *mountain_option(2, mode));
+        mountain_walk(.12f, 0, 0);
+        mountain_frame();
+        REQUIRE(display_sample(480, 300) && !mountain_value(33));
+    }
+    REQUIRE(mountain_action(ACT_HOME) && mountain_action(ACT_USE) && !mountain_value(11));
+    REQUIRE(mountain_action(ACT_LOOKOUT_WEATHER) && mountain_action(ACT_LOOKOUT_PREDATORS) &&
+            mountain_action(ACT_LOOKOUT_GIANTS) && mountain_action(ACT_CABIN));
+    return true;
+}
 static bool run(void) {
     mountain_frame();
     uint32_t trail = display_sample(480, 300);
@@ -180,6 +204,8 @@ static bool run(void) {
         REQUIRE(expedition_walk(i));
     }
     REQUIRE((uint32_t)mountain_value(34) == 0xffffff);
+    for (int i = 0; i < (int)mountain_value(29); i++)
+        REQUIRE(shelter_playtest(i));
     return true;
 }
 int main(int argc, char **argv) {
@@ -193,6 +219,7 @@ int main(int argc, char **argv) {
         puts("Live game passed. All twelve treasure hunts, the summit climb and fall recovery "
              "passed. Both mountains supported a five-kilometre round trip, distant "
              "wildlife "
-             "and a remote cabin visit. Doorways, room travel, conditions and photography passed.");
+             "and a remote cabin visit. All twelve destination shelters, encounters and "
+             "photography passed.");
     return passed ? 0 : 1;
 }

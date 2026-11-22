@@ -116,17 +116,36 @@ local function window(wall,side,t,half,top,opened,lowered)
   else wall(t,top-.035,-.18,half*2+.04,.10,.11,0xb89566,3) end
 end
 
-local function doorway(wall,is_open,omit)
+local function doorway(wall,is_open,omit,style)
   for _,u in ipairs({-.99,.99}) do wall(u,1.27,0,.17,2.54,.32,trim,3) end
   wall(0,2.49,0,2.14,.23,.33,pine,3)
   if omit then return end
   if is_open then
-    wall(-.89,1.20,-.91,.15,2.38,1.82,oak,3)
-    wall(-.79,1.04,-1.55,.13,.13,.13,0xd4ad6e)
+    if style.roof=="tent" then
+      for _,s in ipairs({-1,1}) do
+        wall(s*.97,1.23,-.12,.16,2.36,.25,style.cover)
+        wall(s*.97,1.29,-.12,.19,.095,.29,style.accent)
+      end
+    else
+      wall(-.89,1.20,-.91,.15,2.38,1.82,oak,3)
+      wall(-.79,1.04,-1.55,.13,.13,.13,0xd4ad6e)
+    end
   else
     wall(0,1.20,0,1.82,2.38,.17,oak,3)
-    for j=-3,3 do
-      for _,n in ipairs({-.10,.10}) do wall(j*.238,1.20,n,.218,2.30,.034,wood[(j+4)%4+1],3) end
+    if style.roof=="capsule" then
+      for _,n in ipairs({-.10,.10}) do
+        wall(0,1.24,n,1.48,1.99,.04,style.wall)
+        wall(0,1.60,n*1.29,.52,.11,.045,style.accent,7)
+      end
+    elseif style.roof=="tent" then
+      for _,n in ipairs({-.10,.10}) do
+        for j=-2,2 do wall(j*.35,1.20,n,.35,2.34,.03,j%2==0 and style.cover or style.frame) end
+        wall(0,1.20,n*1.22,.035,2.32,.035,style.accent)
+      end
+    else
+      for j=-3,3 do
+        for _,n in ipairs({-.10,.10}) do wall(j*.238,1.20,n,.218,2.30,.034,wood[(j+4)%4+1],3) end
+      end
     end
     for _,n in ipairs({-.16,.16}) do
       wall(0,.46,n,1.62,.075,.05,trim,3)
@@ -135,17 +154,193 @@ local function doorway(wall,is_open,omit)
   end
 end
 
-local function shell(b,i,l,doors,blinds,panes,omit)
+-- Roof courses meet edge to edge. The gable infill ends above the operable windows.
+local function roof(b,style,w,d,h)
+  if style.roof=="flat" then
+    b(0,h+.08,0,2*w+.55,.28,2*d+.66,style.cover)
+    for _,sign in ipairs({-1,1}) do
+      b(sign*w,h+.29,0,.22,.46,2*d+.27,style.wall)
+      b(0,h+.29,sign*d,2*w,.46,.23,style.wall)
+    end
+    return
+  end
+  local span=w+(style.roof=="tent" and 1.15 or .42)
+  local function rise(x)
+    local u=math.min(1,math.abs(x)/span)
+    if style.roof=="capsule" then return .22+w*.48*math.sqrt(math.max(0,1-u*u)) end
+    if style.roof=="tent" then return -.38+w*.62*(1-u)^1.55 end
+    if style.roof=="bamboo" then return .15+w*(.54*(1-u)^1.5+.12*u^7) end
+    return (span-math.abs(x))*(style.roof=="turf" and .55 or .41)
+  end
+  local n=math.ceil(span/.46)
+  for j=0,n-1 do
+    local a,bx=j*span/n,(j+1)*span/n
+    local x=(a+bx)/2
+    local high,low=rise(a),rise(bx)
+    local length=math.sqrt((bx-a)^2+(high-low)^2)
+    local thickness=style.roof=="turf" and .36 or .14
+    local cover=style.cover+(j%3)*0x020202
+    for _,side in ipairs({-1,1}) do
+      local angle=side*math.atan(low-high,bx-a)
+      b(side*x,h+(high+low)/2,0,length+.045,thickness,2*d+1,cover,0,0,angle)
+      if x<w and (high+low)>0 then
+        for _,endz in ipairs({-d,d}) do
+          local fill=(high+low)/2
+          b(side*x,h+fill/2,endz,bx-a+.012,fill,.20,style.wall)
+        end
+      end
+      if style.roof=="tent" then
+        -- A striped fly projects past the entrance. Its open sides frame the view.
+        local fly=1.15+1.55*(1-x/span)
+        b(side*x,h+(high+low)/2+.06,d+fly*.5,length+.04,.105,fly,
+          j%4==1 and style.accent or cover,0,0,angle)
+        if j%4==1 then
+          b(side*x,h+(high+low)/2+.085,0,length+.015,.045,2*d+.9,style.accent,0,0,angle)
+        end
+      end
+      if style.roof=="capsule" then
+        for _,z in ipairs({-d,-d*.45,d*.45,d}) do
+          b(side*x,h+(high+low)/2+.09,z,length+.04,.10,.12,style.frame,0,0,angle)
+        end
+      end
+    end
+  end
+end
+
+local function spar(b,x,y,z,X,Y,Z,width,colour)
+  local dx,dy,dz=X-x,Y-y,Z-z
+  local along=math.sqrt(dx*dx+dz*dz)
+  b((x+X)/2,(y+Y)/2,(z+Z)/2,width,math.sqrt(along^2+dy^2),width,
+    colour,0,math.atan(dz,dx),-math.atan(along,dy))
+end
+
+local function equipment(b,key,t,w,d,h)
+  local accent,frame=t.accent,t.frame
+  if key=="survey" then
+    b(-w*.79,h+.36,-d*.62,.78,2.35,.91,0x6c685b)
+    b(-w*.79,h+1.55,-d*.62,.95,.15,1.08,0x4e5350)
+    b(0,h-.74,d+.70,3.5,.18,1.68,t.cover,3)
+    for _,s in ipairs({-1,1}) do b(s*1.60,1.48,d+1.30,.15,2.96,.15,frame,3) end
+  elseif key=="coast" then
+    for j=-5,5 do b(j*.29,2.84,d+.53,.29,.10,1.34,j%2==0 and accent or 0xf1e6ce) end
+    for _,s in ipairs({-1,1}) do
+      b(s*1.11,1.29,d+.10,.17,2.58,.24,accent)
+      b(s*(w-.20),h+.48,d-.5,.61,.61,.76,t.wall)
+    end
+    b(-w+.82,h+.73,-d+.9,.61,1.09,.65,t.wall)
+  elseif key=="dunes" then
+    for _,x in ipairs({-1,1}) do for _,z in ipairs({-1,1}) do
+      spar(b,x*(w+.55),h+.04,z*(d+.24),x*(w+2.15),.12,z*(d+1.15),.047,0xdfc99e)
+      b(x*(w+2.15),.14,z*(d+1.15),.12,.48,.12,0x70503c,0,0,x*.20)
+    end end
+    for _,s in ipairs({-1,1}) do
+      spar(b,s*(w+.41),.03,d+1.28,s*(w+.41),h-.16,d+1.28,.115,frame)
+      spar(b,s*(w+.41),h-.16,d+1.28,s*(w+2.55),.10,d+2.42,.065,0xe7cf9b)
+      -- The loose lower canvas flares to the ground below the openable casements.
+      for j=-3,3 do
+        b(s*(w+.49),.49,j*d*.294,1.37,.08,d*.30,
+          j%3==0 and accent or t.cover,0,0,-s*.66)
+      end
+      for j=0,2 do
+        b(s*2.66,.20+j*.23,d+.113,3.46,.075,.038,j==1 and accent or t.cover)
+      end
+    end
+    for j=-3,3 do b(0,.024,d+.82+j*.14,1.45,.025,.12,j%3==0 and accent or 0x975f48) end
+  elseif key=="basalt" then
+    b(w*.6,h+.34,-d*.48,.74,2.53,.76,0x545751)
+    for _,s in ipairs({-1,1}) do
+      for j=0,3 do b(s*(w-.04),.20+j*.38,d+.20,.68-j*.06,.36,.72,0x636259+j*0x040402) end
+    end
+    b(0,2.84,d+.38,2.84,.34,.96,t.cover,0)
+  elseif key=="mesa" then
+    for j=-4,4 do b(j*w/5,h-.25,0,.19,.21,2*d+1.03,frame,3) end
+    for _,s in ipairs({-1,1}) do b(s*1.67,1.35,d+1.57,.16,2.70,.17,frame,3) end
+    for j=-6,6 do b(j*.28,2.76,d+.78,.21,.095,1.82,0xa07c55,3) end
+  elseif key=="karst" then
+    for j=-4,4 do b(j*.49,.005,d+1.00,.47,.15,2.02,0xa28857,3) end
+    for _,s in ipairs({-1,1}) do
+      b(s*2.1,1.56,d+1.58,.11,3.13,.11,t.frame,3)
+      b(s*2.1,.83,d+.90,.10,.10,1.63,t.accent)
+      b(s*1.49,2.22,d+.47,.35,.54,.33,0xdc9c66,7)
+    end
+    b(0,h+2.08,0,.24,.27,2*d+1.14,t.frame,3)
+  elseif t.roof=="capsule" then
+    -- The collar frames a clear entrance with room to see through the open hatch.
+    for _,s in ipairs({-1,1}) do
+      b(s*1.16,1.30,d+.19,.30,2.60,.42,frame)
+      b(s*1.16,1.38,d+.41,.14,.34,.045,accent,7)
+      b(s*1.27,1.55,d+.32,.18,1.81,.62,t.cover)
+      b(s*1.045,2.57,d+.32,.70,.20,.61,t.cover,0,0,-s*.73)
+      b(s*1.045,.28,d+.32,.67,.18,.61,t.cover,0,0,s*.73)
+      b(s*1.30,1.85,d+.64,.14,.54,.055,accent,6)
+      -- External pressure bottles sit clear of the side windows and hatch.
+      local tank=s*(w+.77)
+      b(tank,1.37,d*.66,.82,1.76,.85,t.wall)
+      for _,y in ipairs({.48,2.26}) do
+        b(tank,y,d*.66,.70,.22,.72,frame)
+        b(tank,y+(y>1 and .16 or -.16),d*.66,.47,.13,.50,accent)
+      end
+      b(s*(w+.02),.64,0,.31,.26,2*d+.13,accent)
+      for j=-1,1 do b(s*(w+.12),.82,j*d*.71,.24,.35,.62,frame) end
+    end
+    b(0,2.65,d+.17,2.61,.27,.47,frame)
+    b(0,2.66,d+.42,1.13,.055,.035,accent,7)
+    b(0,2.80,d+.32,1.74,.21,.61,t.cover)
+    b(0,2.78,d+.636,.64,.07,.04,accent,6)
+    if key=="lunar" then
+      spar(b,-w*.70,h+.89,d*.39,-w*.70,h+3.29,d*.39,.13,frame)
+      for j=-3,3 do b(-w*.70+j*.25,h+3.21+j*j*.050,d*.39,.29,.15,1.19,t.wall,0,0,j*.18) end
+      spar(b,-w*.70,h+3.20,d*.39,-w*.87,h+4.01,d*.39,.09,accent)
+      for _,s in ipairs({-1,1}) do
+        spar(b,s*(w-.45),h+.14,-d*.26,s*(w+2.15),h+.59,-d*.26,.17,frame)
+        for j=0,3 do for k=0,2 do
+          b(s*(w+.62+j*.57),h+.84+j*.17,-d*.26+(k-1)*.93,.56,.09,.88,0x54759b,0,0,s*.28)
+        end end
+      end
+    elseif key=="prism" then
+      for j=-2,2 do for _,s in ipairs({-1,1}) do
+        spar(b,s*w*.62,h+1.06,j*1.48,s*w*.85,h+2.49-(math.abs(j)*.21),j*1.48,.18,accent)
+      end end
+    elseif key=="fungal" then
+      for j=-1,1 do
+        b(w*.6,h+1.48,j*2,.70,.78,.76,frame)
+        for k=0,3 do b(w*.6,h+1.53+k*.14,j*2,1.02-k*.08,.08,.96-k*.07,k==2 and accent or t.cover) end
+      end
+    elseif key=="reefs" then
+      for _,s in ipairs({-1,1}) do
+        b(s*(w+.43),.12,0,.94,.69,2*d+.42,frame)
+        for j=-2,2 do b(s*(w+.42),.14,j*d*.46,1.0,.71,.14,accent) end
+        spar(b,s*w*.51,h+1.45,-d*.53,s*w*.91,h+2.43,-d*.76,.15,accent)
+      end
+    elseif key=="cinder" then
+      for j=-4,4 do for _,s in ipairs({-1,1}) do
+        b(s*w*.62,h+1.69,j*.76,1.65,.36,.16,j%2==0 and accent or frame,0,0,-s*.42)
+      end end
+    end
+  end
+end
+
+local function shell(b,i,l,doors,blinds,panes,omit,key,style)
   local w,d,h=l.width,l.depth,l.height
   for side=0,3 do
-    local wall=wall_box(b,side,w,d)
+    local emit=wall_box(b,side,w,d)
+    local function wall(t,y,n,sw,ht,th,c,mat,turn)
+      if key~="alpine" and mat==3 then
+        if c==trim or c==oak then c=style.frame
+        elseif c==pine then c=style.accent
+        else c=style.wall end
+        mat=(style.base=="timber" or style.base=="stilts") and 3 or 0
+      end
+      emit(t,y,n,sw,ht,th,c,mat,turn)
+    end
     local half=side<2 and w or d
     local mid=.60*half
     local wh=math.min(3.6,half*.26)
     local top=2.62+math.max(0,h-3.72)*.86
     local hasdoor=side<3 or l.balcony
     local function timber(lo,hi,bottom,top,c)
-      wall((lo+hi)/2,(bottom+top)/2,0,hi-lo,top-bottom,.20,c,3)
+      local finish=key=="alpine" and c or style.wall
+      wall((lo+hi)/2,(bottom+top)/2,0,hi-lo,top-bottom,.20,finish,key=="alpine" and 3 or 0)
     end
     for _,sign in ipairs({-1,1}) do
       local function section(lo,hi,bottom,top,c)
@@ -160,7 +355,7 @@ local function shell(b,i,l,doors,blinds,panes,omit)
     timber(-half,half,top+.02,h,wood[2])
     if hasdoor then
       timber(-.91,.91,2.44,top+.05,wood[1])
-      doorway(wall,doors & (1<<side)~=0,omit==side)
+      doorway(wall,doors & (1<<side)~=0,omit==side,style)
     end
     for _,u in ipairs({-half,half}) do wall(u,h/2,0,.26,h,.31,trim,3) end
     wall(0,h-.17,0,2*half,.22,.28,pine,3)
@@ -173,6 +368,9 @@ local function shell(b,i,l,doors,blinds,panes,omit)
       for _,side in ipairs({-1,1}) do b(x,-.10,side*d*.775,2*w/n,.2,d*.45,0xbaaa8d) end
     else b(x,-.09,0,2*w/n-.004,.18,2*d+.15,i==1 and 0xb9a990 or wood[j%4+1],3) end
   end
+  if key~="alpine" then
+    roof(b,style,w,d,h)
+  else
   -- A pitched, timber-lined roof. The gable ends close the triangle above each wall.
   local courses=math.ceil(w/.55)
   for j=0,courses do
@@ -183,8 +381,10 @@ local function shell(b,i,l,doors,blinds,panes,omit)
       if x<w then for _,z in ipairs({-d,d}) do b(sign*x,h+rise/2,z,w/courses+.01,rise,.17,oak,3) end end
     end
   end
+  end
   for j=-1,1 do b(0,h-.11,j*d*.66,2*w,.23,.23,trim,3) end
   if i==0 then
+    equipment(b,key,style,w,d,h)
     b(0,-.13,d+.53,3.4,.25,1,oak,3); b(0,-.28,d+1.15,2.62,.25,.39,0x817c67)
     b(-1.34,1.98,d+.26,.24,.43,.25,0xf6c27a,7); b(-1.34,2.22,d+.26,.37,.09,.34,trim)
   end
@@ -258,10 +458,11 @@ local function garden(b,w,d,key)
   for j=-2,2 do b(j*1.1,5.55,0,.12,.21,d*1.6,oak,3) end
 end
 
-function build_room(i,key,doors,blinds,panes,omit,b)
+function build_room(i,key,doors,blinds,panes,omit,b,skin)
   local l=cabin_layouts[i+1]
   local colour=cloth[key%#cloth+1]
-  shell(b,i,l,doors,blinds,panes,omit)
+  skin=skin or "alpine"
+  shell(b,i,l,doors,blinds,panes,omit,skin,shelter_styles[skin])
   if i==1 or i==2 then
     for _,x in ipairs({-1,1}) do for _,z in ipairs({-1,1}) do
       local px,pz=x*l.width*.36,z*(l.depth-.22)

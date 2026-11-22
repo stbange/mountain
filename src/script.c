@@ -152,6 +152,65 @@ static void string_at(lua_State *L, int table, int index, char *out, size_t size
     snprintf(out, size, "%s", luaL_checkstring(L, -1));
     lua_pop(L, 1);
 }
+static void read_shelter(lua_State *L, Shelter *s, const char *key) {
+    static const char *const bases[] = {"timber", "masonry", "pegs", "stilts", "struts", NULL};
+    static const char *const effects[] = {
+        "calm",  "lightning", "snow",    "mist",    "spray",  "surf",    "sand",   "vortex",
+        "heat",  "drylight",  "rain",    "impacts", "ejecta", "dusthop", "shards", "spores",
+        "bloom", "updraft",   "skytide", "embers",  "ash",    NULL};
+    static const char *const habitats[] = {"ground", "water", "air", NULL};
+    snprintf(s->key, sizeof s->key, "%s", key);
+    lua_getglobal(L, "shelter_styles");
+    lua_getfield(L, -1, key);
+    int row = lua_gettop(L);
+    luaL_checktype(L, row, LUA_TTABLE);
+    lua_getfield(L, row, "name");
+    snprintf(s->name, sizeof s->name, "%s", luaL_checkstring(L, -1));
+    lua_pop(L, 1);
+    lua_getfield(L, row, "base");
+    s->footing = (Footing)luaL_checkoption(L, -1, NULL, bases);
+    lua_pop(L, 1);
+    lua_getfield(L, row, "events");
+    for (int i = 0; i < 3; i++) {
+        LookoutEvent *e = &s->event[i];
+        lua_geti(L, -1, i + 1);
+        int t = lua_gettop(L);
+        string_at(L, t, 1, e->name, sizeof e->name);
+        lua_geti(L, t, 2);
+        e->kind = (EventKind)luaL_checkoption(L, -1, NULL, effects);
+        lua_geti(L, t, 3);
+        e->tint = rgb((unsigned)luaL_checkinteger(L, -1));
+        lua_geti(L, t, 4);
+        e->extinction = (float)luaL_checknumber(L, -1);
+        if (!(e->extinction >= 0 && e->extinction <= .2f))
+            luaL_error(L, "invalid lookout extinction");
+        lua_pop(L, 4);
+    }
+    lua_pop(L, 1);
+    lua_getfield(L, row, "sights");
+    for (int i = 0; i < 2; i++) {
+        Sighting *v = &s->sight[i];
+        lua_geti(L, -1, i + 1);
+        int t = lua_gettop(L);
+        string_at(L, t, 1, v->name, sizeof v->name);
+        string_at(L, t, 2, v->model, sizeof v->model);
+        lua_geti(L, t, 3);
+        v->habitat = (Habitat)luaL_checkoption(L, -1, NULL, habitats);
+        lua_geti(L, t, 4);
+        v->count = (int)luaL_checkinteger(L, -1);
+        lua_geti(L, t, 5);
+        v->scale = (float)luaL_checknumber(L, -1);
+        if (v->count < 1 || v->count > 12 || !(v->scale > 0 && v->scale <= 8))
+            luaL_error(L, "invalid sighting");
+        lua_pop(L, 4);
+    }
+    lua_pop(L, 3);
+}
+static int read_default_shelter(lua_State *L) {
+    Rules *r = lua_touserdata(L, lua_upvalueindex(1));
+    read_shelter(L, &r->default_shelter, "alpine");
+    return 0;
+}
 static int read_destinations(lua_State *L) {
     Rules *r = lua_touserdata(L, lua_upvalueindex(1));
     static const char *const profiles[] = {"alpine", "survey", "coast", "dunes", "basalt",
@@ -167,6 +226,9 @@ static int read_destinations(lua_State *L) {
         int row = lua_gettop(L);
         lua_getfield(L, row, "profile");
         d->profile = (Profile)luaL_checkoption(L, -1, NULL, profiles);
+        lua_pop(L, 1);
+        lua_getfield(L, row, "shelter");
+        read_shelter(L, &d->shelter, luaL_optstring(L, -1, profiles[d->profile]));
         lua_pop(L, 1);
         lua_getfield(L, row, "seed");
         d->seed = (uint32_t)luaL_checkinteger(L, -1);
@@ -323,6 +385,13 @@ bool script_load(Script *s, const char *assets) {
     lua_pushcclosure(L, read_rules, 1);
     if (luaL_dofile(L, path) != LUA_OK || lua_pcall(L, 1, 0, 0) != LUA_OK)
         return failure(s);
+    snprintf(path, sizeof path, "%s/scripts/shelters.lua", assets);
+    if (luaL_dofile(L, path) != LUA_OK)
+        return failure(s);
+    lua_pushlightuserdata(L, &s->rules);
+    lua_pushcclosure(L, read_default_shelter, 1);
+    if (lua_pcall(L, 0, 0, 0) != LUA_OK)
+        return failure(s);
     if (s->rules.destination_file[0]) {
         snprintf(path, sizeof path, "%s/scripts/%s", assets, s->rules.destination_file);
         lua_pushlightuserdata(L, &s->rules);
@@ -390,7 +459,8 @@ static int emit(lua_State *L) {
     tilted_box(b->m, local, (Vec){0}, size, color, (float)mat, (float)luaL_optnumber(L, 10, 0));
     return 0;
 }
-bool script_room(Script *s, Mesh *m, Pose p, const Room *room, unsigned doors, int omit_door) {
+bool script_room(Script *s, Mesh *m, Pose p, const Room *room, unsigned doors, int omit_door,
+                 const char *skin) {
     lua_State *L = s->L;
     Builder b = {m, p};
     lua_getglobal(L, "build_room");
@@ -402,7 +472,8 @@ bool script_room(Script *s, Mesh *m, Pose p, const Room *room, unsigned doors, i
     lua_pushinteger(L, omit_door);
     lua_pushlightuserdata(L, &b);
     lua_pushcclosure(L, emit, 1);
-    if (lua_pcall(L, 7, 0, 0) != LUA_OK)
+    lua_pushstring(L, skin);
+    if (lua_pcall(L, 8, 0, 0) != LUA_OK)
         return failure(s);
     return !m->failed;
 }
@@ -467,12 +538,12 @@ bool script_animal(Script *s, Mesh *m, const Animal *a, int season) {
     return !m->failed;
 }
 
-bool script_visitor(Script *s, Mesh *m, Pose pose, bool giant, float stride) {
+bool script_visitor(Script *s, Mesh *m, Pose pose, const Sighting *sight, float stride) {
     lua_State *L = s->L;
-    Animal model = {.pos = pose.origin, .yaw = pose.angle, .size = 1};
+    Animal model = {.pos = pose.origin, .yaw = pose.angle, .size = sight->scale};
     AnimalBuilder builder = {m, &model};
     lua_getglobal(L, "build_visitor");
-    lua_pushboolean(L, giant);
+    lua_pushstring(L, sight->model);
     lua_pushnumber(L, stride);
     lua_pushlightuserdata(L, &builder);
     lua_pushcclosure(L, animal_part, 1);

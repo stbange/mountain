@@ -125,7 +125,7 @@ struct Display {
     GLint sky_fill, bounce, cloud_origin, house_pass, lamps[4], lamp_colour[4];
     int shadow_weather;
     uint64_t cabin_revision;
-    GLint room_origin, room_axes, lookout;
+    GLint room_origin, room_axes, lookout, event_air;
     uint32_t shadow_notes;
     double life_time;
     float life_hour, life_x, life_z;
@@ -372,6 +372,7 @@ Display *display_open(const char *root) {
     LOC(room_origin, "room_origin");
     LOC(room_axes, "room_axes");
     LOC(lookout, "lookout");
+    LOC(event_air, "event_air");
     for (int i = 0; i < 4; i++) {
         char name[32];
         snprintf(name, sizeof name, "u_lamps[%d]", i);
@@ -762,9 +763,16 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
                (float)fmod(g->world.oz * (2.32 / 950.0), 256.0));
     Color hor = blend(rgb(0x243047), blend(rgb(0xf2e9ce), rgb(0xfac79d), warm), day);
     Color zen = blend(rgb(0x121c32), blend(rgb(0x689cb3), rgb(0x899daf), warm * .61f), day);
-    unsigned watch = g->cabin.inside ? g->book.weather : LOOKOUT_CALM;
-    int weather = watch == LOOKOUT_FOG ? 3 : watch ? 2 : g->weather;
-    qUniform1i(d->lookout, (int)watch);
+    const LookoutEvent *event = lookout_event(g);
+    bool thunder = event_thunders(g);
+    int weather = g->weather;
+    if (event->kind != FX_CALM)
+        weather =
+            (event->kind == FX_MIST || event->kind == FX_ASH)                                   ? 3
+            : (event->kind == FX_LIGHTNING || event->kind == FX_RAIN || event->kind == FX_SNOW) ? 2
+                                                                                                : 0;
+    qUniform1i(d->lookout, thunder ? 2 : event->kind == FX_HEAT ? 3 : event->kind != FX_CALM);
+    qUniform4f(d->event_air, event->tint.r, event->tint.g, event->tint.b, event->extinction);
     float grey = weather == 2 ? .67f : (weather == 3 ? .45f : (weather == 1 ? .22f : 0));
     hor = blend(hor, shade(rgb(0xacb7b6), .36f + .64f * day), grey);
     zen = blend(zen, shade(rgb(0x86979c), .35f + .65f * day), grey);
@@ -792,7 +800,7 @@ void display_draw(Display *d, Script *s, const Game *g, Viewport vp, const Mat *
     qUniform3f(d->soil, soil.r, soil.g, soil.b);
     qUniform3f(d->horizon, hor.r, hor.g, hor.b);
     qUniform3f(d->zenith, zen.r, zen.g, zen.b);
-    qUniform4f(d->air, g->hour, day, warm, profile == LUNAR && !watch ? 0 : (float)weather);
+    qUniform4f(d->air, g->hour, day, warm, profile == LUNAR ? 0 : (float)weather);
     qUniform1f(d->clock, g->elapsed);
     qUniform1f(d->season_tint, (float)g->season);
     if (!d->lake_tex || (profile != LUNAR && profile != PRISM))
@@ -861,6 +869,8 @@ static void headset_note(Display *d, const Game *g) {
         note = "Exposed edge - watch your footing";
     else if (g->warning_timer > 0)
         note = "Back on safe footing";
+    else if (g->lookout_timer > 0)
+        note = g->lookout_note;
     else if (g->note_timer > 0)
         note = field_hint(g);
     else if (nearby == NEAR_ENTER || nearby == NEAR_EXIT)
@@ -885,10 +895,9 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
     snprintf(line, sizeof line, "%02d:%02d   %s   %s", time / 60, time % 60,
              g->rules->seasons[g->season], weather_label(g, g->weather));
     if (g->cabin.inside) {
-        const char *weather[] = {"Calm", "Thunderstorm", "Snowstorm", "Heavy fog"};
-        snprintf(line, sizeof line, "%02d:%02d   %s%s%s", time / 60, time % 60,
-                 weather[g->book.weather], g->book.predators ? "  Wolves" : "",
-                 g->book.giants ? "  Giant" : "");
+        const Shelter *shelter = destination_shelter(g);
+        snprintf(title, sizeof title, "%s / %s", shelter->name, cabin_layout(g)->name);
+        snprintf(line, sizeof line, "%02d:%02d   %s", time / 60, time % 60, lookout_event(g)->name);
     }
     const char *actions[] = {"WASD HIKE  /  P PHOTO  /  H CABIN  /  F1 GUIDE",
                              "E  OPEN DOOR",
@@ -904,8 +913,9 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
                              "E  OPEN BALCONY DOOR",
                              "E  CROSS TO OTHER SIDE  /  F  CLOSE DOOR"};
     Color ink = rgb(0x233a31), cream = rgb(0xf0edda);
-    quad(m, pixel(6, 7, w, h), pixel(200, 7, w, h), pixel(200, 32, w, h), pixel(6, 32, w, h), ink,
-         0);
+    int panel = (int)fminf(w - 5, fmaxf(200, 20 + 6.f * fmaxf(strlen(title), strlen(line))));
+    quad(m, pixel(6, 7, w, h), pixel(panel, 7, w, h), pixel(panel, 32, w, h), pixel(6, 32, w, h),
+         ink, 0);
     label(m, title, 12, 10, w, h, cream);
     label(m, line, 12, 21, w, h, cream);
     const char *a = g->fall_time > 0       ? "SLIPPING"
@@ -919,10 +929,10 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
         const char *lines[] = {"FIELD GUIDE",
                                "WASD or arrows: hike / turn",
                                "Drag or left click: look",
-                               "H: summon / dismiss cabin",
+                               "H summon / dismiss shelter",
                                "E use   F door   J window blind",
                                "R return to Hearth Room",
-                               "K shelter weather  L wolves  X giant",
+                               "K phenomenon   L / X local sightings",
                                "T: time   Y: season   U: weather",
                                "I: cycle seasons   O: weather changes",
                                "N: new trail   B: Taggart Lake",
@@ -947,8 +957,8 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
             note_lines(m, total, w >= 455 ? 254 : 6, w >= 455 ? 36 : 161, 40, w, h, ink, cream);
         }
     }
-    if ((help || g->note_timer > 0) && g->world.place) {
-        const char *note = field_hint(g);
+    if ((help || g->note_timer > 0 || g->lookout_timer > 0) && g->world.place) {
+        const char *note = g->lookout_timer > 0 ? g->lookout_note : field_hint(g);
         int start = help ? 177 : 36, width = (w - 24) / 6;
         if (width > 105)
             width = 105;

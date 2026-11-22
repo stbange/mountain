@@ -83,6 +83,49 @@ typedef struct {
     Color sky, bounce;
     float clouds, softness;
 } Lighting;
+typedef enum { BASE_TIMBER, BASE_MASONRY, BASE_PEGS, BASE_STILTS, BASE_STRUTS } Footing;
+typedef enum {
+    FX_CALM,
+    FX_LIGHTNING,
+    FX_SNOW,
+    FX_MIST,
+    FX_SPRAY,
+    FX_SURF,
+    FX_SAND,
+    FX_VORTEX,
+    FX_HEAT,
+    FX_DRYLIGHT,
+    FX_RAIN,
+    FX_IMPACTS,
+    FX_EJECTA,
+    FX_DUSTHOP,
+    FX_SHARDS,
+    FX_SPORES,
+    FX_BLOOM,
+    FX_UPDRAFT,
+    FX_SKYTIDE,
+    FX_EMBERS,
+    FX_ASH
+} EventKind;
+typedef enum { ON_LAND, ON_WATER, IN_AIR } Habitat;
+typedef struct {
+    char name[40];
+    EventKind kind;
+    Color tint;
+    float extinction;
+} LookoutEvent;
+typedef struct {
+    char name[48], model[32];
+    Habitat habitat;
+    int count;
+    float scale;
+} Sighting;
+typedef struct {
+    char key[32], name[40];
+    Footing footing;
+    LookoutEvent event[3];
+    Sighting sight[2];
+} Shelter;
 typedef struct {
     Profile profile;
     FieldSkill skill;
@@ -91,6 +134,7 @@ typedef struct {
     char name[48], region[48], stops[2][36], signs[3][44], notes[3][144];
     Color colours[6];
     Lighting lighting;
+    Shelter shelter;
     Mesh *art;
 } Destination;
 typedef struct {
@@ -123,7 +167,7 @@ typedef struct {
     bool balcony;
 } Layout;
 typedef enum { FRONT, REAR, RIGHT_WALL, LEFT_WALL } Wall;
-typedef enum { LOOKOUT_CALM, LOOKOUT_THUNDER, LOOKOUT_SNOW, LOOKOUT_FOG } LookoutWeather;
+
 typedef struct {
     uint32_t parent, child[2], key;
     unsigned char incoming, turn, kind, doors, blinds, panes;
@@ -138,6 +182,7 @@ typedef struct {
 typedef struct {
     int layouts;
     Layout layout[CABIN_LAYOUTS];
+    Shelter default_shelter;
     float hour, clock_rate, pace, relief, water, weather_interval, season_interval;
     Survey survey;
     uint32_t seed;
@@ -161,6 +206,10 @@ typedef struct {
 typedef struct {
     bool present, open, inside, tree_supported;
     Tree anchor;
+    struct LookoutSite {
+        float dx, dz;
+        bool valid;
+    } lookout[2];
     uint32_t room;
     double site_x, site_z;
     float anchor_dx, anchor_dz;
@@ -177,7 +226,8 @@ typedef struct {
     int chimes, falls;
     float fall_time, fall_y, footing_timer, warning_timer, note_timer;
     bool exposed;
-    char field_note[240];
+    char field_note[240], lookout_note[100];
+    float lookout_timer;
     bool cycle_seasons, changing_weather;
     int season, weather;
 } Game;
@@ -229,6 +279,7 @@ Interaction field_near(const Game *g);
 void field_refresh(Game *g);
 bool field_read(Game *g);
 const char *field_hint(const Game *g);
+const char *compass_bearing(float yaw);
 void footing_move(Game *g, float x, float z, float dt);
 bool footing_recover(Game *g, float dt);
 float clampf(float v, float lo, float hi);
@@ -281,6 +332,9 @@ void game_tick(Game *g, float dt, float forward, float right);
 Interaction game_near(const Game *g);
 bool game_action(Game *g, Action action);
 const Room *cabin_room(const RoomBook *book, uint32_t id);
+const Shelter *destination_shelter(const Game *g);
+const LookoutEvent *lookout_event(const Game *g);
+bool event_thunders(const Game *g);
 const Layout *cabin_layout(const Game *g);
 Cabin cabin_frame(const Game *g);
 unsigned cabin_doors(const Game *g, uint32_t id);
@@ -362,13 +416,16 @@ typedef struct {
 } Script;
 bool script_load(Script *s, const char *assets);
 void script_close(Script *s);
-bool script_room(Script *s, Mesh *m, Pose pose, const Room *room, unsigned doors, int omit_door);
-bool script_visitor(Script *s, Mesh *m, Pose pose, bool giant, float stride);
+bool script_room(Script *s, Mesh *m, Pose pose, const Room *room, unsigned doors, int omit_door,
+                 const char *skin);
+bool script_visitor(Script *s, Mesh *m, Pose pose, const Sighting *sight, float stride);
 void landscape(Mesh *m, Forest *forest, const Game *g, float cx, float cz);
 void cabin_mesh(Mesh *m, Script *s, const Game *g);
 void realm_scenery(Mesh *m, const Game *g, float cx, float cz);
 void field_scenery(Mesh *m, const Game *g);
 void realm_life(Mesh *m, const Game *g);
 bool script_animal(Script *s, Mesh *m, const Animal *a, int season);
+void lookout_sites(Game *g);
+void lookout_scenery(Mesh *m, Script *s, const Game *g);
 void wildlife(Mesh *m, Script *s, const Game *g);
 #endif

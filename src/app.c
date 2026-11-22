@@ -169,6 +169,19 @@ PUBLIC int mountain_sound(void) {
         sound_on = SDL_ResumeAudioStreamDevice(audio);
     return sound_on;
 }
+static const char *sighting_direction(int slot) {
+    static char text[64];
+    if (!game.cabin.present)
+        return "";
+    struct LookoutSite site = game.cabin.lookout[slot];
+    if (!site.valid)
+        return destination_shelter(&game)->sight[slot].habitat == ON_WATER
+                   ? "Summon closer to open water"
+                   : "Summon near open ground";
+    snprintf(text, sizeof text, "%d m %s", (int)roundf(hypotf(site.dx, site.dz)),
+             compass_bearing(atan2f(site.dx, -site.dz)));
+    return text;
+}
 PUBLIC int mountain_action(int action) {
     uint32_t before = game.notes;
     int pitch = -1;
@@ -185,14 +198,27 @@ PUBLIC int mountain_action(int action) {
             }
         }
     }
-    bool thunder_outside = game.cabin.inside && game.book.weather == LOOKOUT_THUNDER;
+    bool thunder_outside = event_thunders(&game);
     uint64_t revision = game.book.revision;
     int ok = game_action(&game, (Action)action);
     if (game.book.revision != revision || cabin_dirty)
         save_cabin();
-    if (thunder_outside && (!game.cabin.inside || game.book.weather != LOOKOUT_THUNDER) &&
-        instrument)
+    if (thunder_outside && !event_thunders(&game) && instrument)
         SDL_ClearAudioStream(instrument);
+    if (ok && action >= ACT_LOOKOUT_WEATHER && action <= ACT_LOOKOUT_GIANTS) {
+        const Shelter *shelter = destination_shelter(&game);
+        if (action == ACT_LOOKOUT_WEATHER)
+            snprintf(game.lookout_note, sizeof game.lookout_note, "%s / %s", shelter->name,
+                     mountain_option(2, game.book.weather));
+        else {
+            bool large = action == ACT_LOOKOUT_GIANTS;
+            bool enabled = large ? game.book.giants : game.book.predators;
+            const char *direction = sighting_direction(large);
+            snprintf(game.lookout_note, sizeof game.lookout_note, "Watch %s / %s",
+                     shelter->sight[large].name, enabled ? (*direction ? direction : "on") : "off");
+        }
+        game.lookout_timer = 4;
+    }
     if (pitch >= 0) {
         const char *chimes[] = {"chime-0", "chime-1", "chime-2"};
         play_cue(chimes[pitch]);
@@ -249,7 +275,7 @@ static void arrive(int dest, uint32_t seed) {
     int season = game.season, weather = game.weather;
     float hour = game.hour;
     bool cycle = game.cycle_seasons, changing = game.changing_weather;
-    if (instrument && game.cabin.inside && game.book.weather == LOOKOUT_THUNDER)
+    if (instrument && event_thunders(&game))
         SDL_ClearAudioStream(instrument);
     RoomBook book = game.book;
     game_destination(&game, &scripts.rules, seed, dest);
@@ -321,6 +347,14 @@ PUBLIC const char *mountain_label(int key) {
                    : "";
     case 11:
         return game.world.place ? game.world.place->notes[2] : "";
+    case 12:
+        return destination_shelter(&game)->name;
+    case 13:
+    case 14:
+        return destination_shelter(&game)->sight[key - 13].name;
+    case 15:
+    case 16:
+        return sighting_direction(key - 15);
     case 4:
         return scripts.rules.survey.name;
     case 5:
@@ -336,6 +370,9 @@ PUBLIC const char *mountain_label(int key) {
     }
 }
 PUBLIC const char *mountain_option(int kind, int index) {
+    if (kind == 2)
+        return index >= 1 && index <= 3 ? destination_shelter(&game)->event[index - 1].name
+                                        : "Calm";
     return kind ? weather_label(&game, index) : game.rules->seasons[(unsigned)index % SEASONS];
 }
 PUBLIC float mountain_height(double x, double z) { return height_global(&game.world, x, z); }
@@ -475,10 +512,10 @@ PUBLIC void mountain_xr_active(int enabled) {
     input_f = input_r = 0;
 }
 PUBLIC void mountain_walk(float dt, float f, float r) {
-    bool sheltered = game.cabin.inside;
+    bool thunder = event_thunders(&game);
     double previous_phase = fmod(game.elapsed, 19);
     game_tick(&game, dt, f, r);
-    if (sheltered && game.book.weather == LOOKOUT_THUNDER) {
+    if (thunder) {
         if (game.cabin.inside && previous_phase < 5.15 && fmod(game.elapsed, 19) >= 5.15)
             play_cue("thunder");
         if (!game.cabin.inside && instrument)

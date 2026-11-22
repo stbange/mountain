@@ -51,11 +51,26 @@ Firs, spruce, larches and aspens grow from seeded voxel trunks and branches. Lar
 
 Ridges cast broad shadows and the gaps between fir branches let sunlight reach the trail. Clouds move across the sky and the ground together. At Erg Chebbi, sand lends shaded slopes an amber cast. On the Moon, crater rims cast sharply defined shadows.
 
-**Summon cabin** places a furnished lodge ahead. Its footings follow the slope. In a grove, a mature tree at the edge of the floor can carry the platform. Open the front door to see the Hearth Room, then walk through. The rear and right-hand doors start closed. Opening one reveals a room you can look into before stepping through. The rear door of the Hearth Room leads to the spring baths, and its right door leads to the winter garden. Both have railed balconies. Other branches include bedrooms, reading rooms, a map gallery and a sunroom. The front door of each room retraces your route. Press **R** to return to the Hearth Room from any room, balcony or trail.
+The **Summon** button places the local shelter ahead of you. Its footings follow the slope. In an alpine grove, a mature tree can carry the cabin platform. Other destinations use stone footings, guy ropes, bamboo stilts or capsule landing legs. Open the front door to see the Hearth Room, then walk through. The rear and right-hand doors start closed. Opening one reveals a room you can look into before stepping through. The rear door of the Hearth Room leads to the spring baths, and its right door leads to the winter garden. Both have railed balconies. Other branches include bedrooms, reading rooms, a map gallery and a sunroom. The front door of each room retraces your route. Press **R** to return to the Hearth Room from any room, balcony or trail.
 
 Beside a window, press **E** to swing its glass pane and **J** to raise or lower its blind. The house remembers its rooms, door positions, panes and blinds when you dismiss it, travel to another world or restart the game on this device. The exterior entrance closes when you summon the cabin again.
 
-In **Trail conditions**, the cabin window weather can be calm, a thunderstorm, a snowstorm or heavy fog. You can also switch a passing wolf pack and a distant antlered giant on or off independently. These options start off. They affect the view from the cabin and its balconies. The creatures follow their own paths and cannot sense or reach you. Enable sound to hear the thunder roll after the sky lights up.
+In **Trail conditions**, choose one of three local phenomena and switch either sighting on or off. These controls start off and remember your choices when you travel. They affect the view from the shelter and its balconies. The visitors never detect or pursue you. Each enabled sighting shows its compass bearing and approximate distance from your shelter. Summon near the shore to see marine events. Lightning can be heard when sound is enabled. Lunar impacts throw silent arcs of regolith against a black sky.
+
+| Destination | Summoned shelter | Local phenomena | Optional sightings |
+|---|---|---|---|
+| Larkspur Ridge | Timber cabin | Thunderstorm, snowstorm, heavy fog | Wolf pack, ridge giant |
+| Taggart Lake | Ranger cabin | Teton thunderstorm, pass whiteout, glacial lake fog | Grizzly bear, bull moose |
+| Sarakiniko | Cycladic boathouse | Meltemi spray, breaking swells, sea fog | Barracuda shoal, waterspout |
+| Erg Chebbi | Caravan tent | Sandstorm, dust devils, heat shimmer | Horned vipers, collapsing dune |
+| Reynisfjara | Turf shelter | Atlantic gale, sneaker waves, sea fret | Orca pod, basalt rockfall |
+| Canyonlands | Sandstone field hut | Dry lightning, dust storm, canyon haze | Cougar, tumbling boulder field |
+| Li River | Bamboo stilt house | Monsoon rain, river surge, karst mist | Bamboo pit vipers, flood debris |
+| Mare Imbrium | Lunar capsule | Micrometeor impacts, ejecta fans, lofted regolith | Runaway survey rover, crater-wall landslide |
+| Prism Choir | Prism capsule | Prism lightning, crystal shardfall, violet veil | Glass mantises, facet walker |
+| Lantern Mycelium | Sporefilter capsule | Spore squall, lantern bloom, bioluminescent mist | Spore stalkers, lantern grazer |
+| The Hanging Sea | Flotation capsule | Gravity squall, sky tide, reef mist | Ribbon rays, sky leviathan |
+| Emberglass Caldera | Thermal capsule | Emberfall, volcanic lightning, ash cloud | Cinder hounds, basalt colossus |
 
 **Camera** opens the viewfinder. Take a photograph, then open **Photo journal** to view it or download its PNG. The browser keeps photographs in IndexedDB on that browser and device. Native photographs are lossless BMPs in the SDL user preference directory for Mountain. The window title and console show the saved path.
 
@@ -67,7 +82,7 @@ In **Trail conditions**, the cabin window weather can be calm, a thunderstorm, a
 | Open a door or cross the nearby threshold | E or walk through an open door | Door prompt or thumb pad |
 | Close or reopen any door from either side | F beside the door | Close door or Open door |
 | Open or close a glass pane / adjust its blind | E / J beside the window | Window / blind buttons |
-| Cabin weather / wolves / giant | K / L / X | Trail conditions |
+| Local phenomenon / first sighting / second sighting | K / L / X | Trail conditions |
 | Return to the Hearth Room | R | Hearth room button |
 | Photograph | P. On web, C opens the viewfinder. | Camera, then Take photo |
 | Sound | M | Speaker button |
@@ -75,7 +90,7 @@ In **Trail conditions**, the cabin window weather can be calm, a thunderstorm, a
 | Conditions | V opens the web panel. Y changes season, U changes weather and T advances the hour. Native I toggles seasonal cycling and O toggles changing weather. | Season & weather |
 | Destination | Trail map on web. On native, B opens Taggart Lake and N generates a new mountain. | Trail map |
 
-On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to read a sign or use a door, and squeeze to summon or dismiss outdoors. Indoors, the trigger opens a pane or uses a door, the left grip operates its blind or door latch, and the right grip returns to the Hearth Room. On controllers with X and Y face buttons, X changes season and Y changes weather. The right secondary face button advances the time of day for dusk clues. Indoors, X toggles wolves, Y cycles cabin weather and the right secondary button toggles the giant. WebXR requires HTTPS or localhost.
+On an immersive-VR-capable browser, open **Field guide → Enter VR**. Head tracking supplies the views. Use the left stick to hike, the right stick to snap-turn, the trigger to read a sign or use a door, and squeeze to summon or dismiss outdoors. Indoors, the trigger opens a pane or uses a door, the left grip operates its blind or door latch, and the right grip returns to the Hearth Room. On controllers with X and Y face buttons, X changes season and Y changes weather. The right secondary face button advances the time of day for dusk clues. Indoors, X toggles the first local sighting, Y cycles the local phenomenon and the right secondary button toggles the second sighting. WebXR requires HTTPS or localhost.
 
 ## Build
 
@@ -117,6 +132,8 @@ Open http://localhost:8000/. Serve the entire directory. The loader reads the ma
 | assets/art, assets/shaders and assets/sound | Original bitmap art, GLSL and loopable PCM ambience |
 
 To reproduce the Taggart Lake terrain asset, run `python tools/prepare_taggart.py USGS_1_n44w111.tif assets/terrain/taggart.mht` with Pillow installed. The input tile used for this release has SHA-256 `ec3e6b490cdd5035af94952a0d6b4415c42b15da6a85ebeae75edaeb51c9afe5`. The preparation tool records the trailhead coordinates and samples a 40-metre grid.
+
+The loose catalogue in `assets/scripts/shelters.lua` pairs a shelter with its three phenomena and two sightings. A destination uses its terrain profile as the catalogue key by default or can set `shelter` in its destination table. Each sighting names a Lua model, habitat, group size and scale. The model receives a gait phase and a drawing callback.
 
 Edit the staged Lua or art files and reopen the game to see changes without recompiling. To add a room design, extend build_room in cabin.lua. The builder takes centred boxes in metres, colour, material, yaw, optional roof tilt and an optional light radius in metres. Material 7 marks a glowing fixture. The renderer takes up to four local lights, starting with the active room. Room zero is the main cabin. The engine stores compact records for discovered rooms and builds geometry for the active room and its open doorways. Append room types to cabin_layouts in cabin.lua to preserve the identity of saved layouts. Destination slots in destinations.lua identify saved journal entries. Append slots to extend a content pack. A destination selects a C terrain profile and a field skill. Its lighting table sets sky and ground-bounce RGB intensities, cloud influence from 0 to 1, and shadow softness from 0 (sharp) to 2. Its Lua artwork uses tapered strokes to construct scenery and relics, and the atlas photography lives in web/ui/atlas/.
 

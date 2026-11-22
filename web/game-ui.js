@@ -21,7 +21,8 @@ const val = (id) => Module._mountain_value(id);
 const nameOf = (id) =>
   Module.ccall("mountain_label", "string", ["number"], [id]);
 const icon = (name) => '<i aria-hidden="true" class="icon i-' + name + '"></i>';
-const lookoutWeather = ["Calm", "Thunderstorm", "Snowstorm", "Heavy fog"];
+const phenomenon = (index) =>
+  Module.ccall("mountain_option", "string", ["number", "number"], [2, index]);
 const near = [
   "",
   "Open door",
@@ -96,7 +97,7 @@ function refresh() {
     use = near[val(13)];
   $("location").textContent = inside ? nameOf(3) : nameOf(0);
   $("biome").textContent = inside
-    ? "Cabin · Room " + (val(12) + 1)
+    ? nameOf(12) + " · Room " + (val(12) + 1)
     : val(36) > 1
       ? nameOf(9)
       : val(36) === 1
@@ -114,8 +115,7 @@ function refresh() {
   $("height").textContent = Math.round(val(8)).toLocaleString() + " m";
   $("season").textContent = nameOf(1);
   $("clock").textContent = timeText(h);
-  $("skies").textContent =
-    inside && val(39) ? lookoutWeather[val(39)] : nameOf(2);
+  $("skies").textContent = inside && val(39) ? phenomenon(val(39)) : nameOf(2);
   $("sky-icon").className =
     "icon i-" +
     (val(36) === 7
@@ -137,8 +137,8 @@ function refresh() {
   $("cabin").querySelector("span").textContent = inside
     ? "Hearth room"
     : val(9)
-      ? "Dismiss cabin"
-      : "Summon cabin";
+      ? "Dismiss " + nameOf(12).toLowerCase()
+      : "Summon " + nameOf(12).toLowerCase();
   $("cabin").querySelector("kbd").textContent = inside ? "R" : "H";
   const on = Boolean(val(14));
   $("sound").innerHTML = icon(on ? "sound" : "mute");
@@ -171,14 +171,17 @@ function act(action) {
   const result = Module._mountain_action(action);
   if (reading) notice(nameOf(8));
   if (action === 1 && result)
-    notice(val(9) ? "Your cabin is here." : "Cabin dismissed.");
-  if (action === 11) notice("Cabin weather · " + lookoutWeather[val(39)]);
-  if (action === 12)
-    notice(val(40) ? "Wolves may pass the cabin." : "Wolf sightings off.");
-  if (action === 13)
+    notice(val(9) ? nameOf(12) + " summoned." : nameOf(12) + " dismissed.");
+  if (action === 11) notice(nameOf(12) + " · " + phenomenon(val(39)));
+  if (action === 12 || action === 13) {
+    const enabled = val(action === 12 ? 40 : 41);
     notice(
-      val(41) ? "A giant walks the distant ridge." : "Giant sightings off.",
+      "Watch " +
+        nameOf(action + 1) +
+        " · " +
+        (enabled ? nameOf(action + 3) || "on" : "off"),
     );
+  }
   if (val(43))
     notice("Cabin save unavailable. Your rooms are still here for this visit.");
   refresh();
@@ -333,15 +336,35 @@ function conditions() {
       display.textContent = timeText(h);
     },
   );
-  choose(content, "Cabin window weather", lookoutWeather, val(39), (i) => {
-    while (val(39) !== i) act(11);
-  });
-  modeControl("Watch a wolf pack", 40, 12);
-  modeControl("Watch a ridge giant", 41, 13);
+  choose(
+    content,
+    nameOf(12) + " · Local phenomena",
+    options(2, 4),
+    val(39),
+    (i) => {
+      while (val(39) !== i) act(11);
+    },
+  );
+  for (let slot = 0; slot < 2; slot++) {
+    const check = modeControl(
+      "Watch " + nameOf(13 + slot),
+      40 + slot,
+      12 + slot,
+    );
+    const direction = nameOf(15 + slot);
+    if (direction) {
+      const hint = el("p", direction, "note");
+      hint.hidden = !check.checked;
+      check.addEventListener("change", () => {
+        hint.hidden = !check.checked;
+      });
+      content.append(hint);
+    }
+  }
   content.append(
     el(
       "p",
-      "These sights appear only while you’re in the cabin or on its balcony.",
+      "Watch these from your shelter or balcony. Marine sightings follow open water.",
       "note",
     ),
   );
@@ -712,7 +735,7 @@ function guide() {
         ["Walk", "Move the thumb pad"],
         ["Season and weather", "Tap the sky control"],
         ["Look around", "Drag the landscape"],
-        ["Call your cabin", "Summon cabin in the trail kit"],
+        ["Call your shelter", "Tap Summon in the trail kit"],
         [
           "Use a door or read a field sign",
           "Tap the nearby interaction prompt",
@@ -724,7 +747,7 @@ function guide() {
     : [
         ["Walk", "W A S D · ↑ ↓"],
         ["Look around", "Drag the view · ← →"],
-        ["Summon or dismiss cabin", "H · outdoors"],
+        ["Summon or dismiss your shelter", "H · outdoors"],
         ["Use a door or read a field sign", "E · beside it"],
         ["Open or close a door", "F · beside it"],
         ["Open a pane or adjust its blind", "E · pane / J · blind"],

@@ -147,7 +147,14 @@ bool game_action(Game *g, Action action) {
             c->y = fmaxf(water_at(&g->world, threshold.x, threshold.z) + .24f,
                          height_at(&g->world, threshold.x, threshold.z) + .17f);
         }
-        grove_support(g);
+        const Footing base = destination_shelter(g)->footing;
+        if (base == BASE_TIMBER)
+            grove_support(g);
+        if (base == BASE_STILTS)
+            c->y += .95f;
+        if (base == BASE_STRUTS)
+            c->y += .30f;
+        lookout_sites(g);
         return true;
     case ACT_BLINDS:
         return c->inside && cabin_use(g, action);
@@ -262,6 +269,7 @@ void game_tick(Game *g, float dt, float f, float r) {
     dt = clampf(dt, 0, .20f);
     g->elapsed += dt;
     g->note_timer = fmaxf(0, g->note_timer - dt);
+    g->lookout_timer = fmaxf(0, g->lookout_timer - dt);
     g->hour = fmodf(g->hour + dt * g->rules->clock_rate, 24);
     if (g->cycle_seasons)
         g->season_clock += dt;

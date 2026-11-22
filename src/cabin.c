@@ -4,6 +4,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+const Shelter *destination_shelter(const Game *g) {
+    return g->world.place ? &g->world.place->shelter : &g->rules->default_shelter;
+}
+const LookoutEvent *lookout_event(const Game *g) {
+    static const LookoutEvent calm = {.name = "Calm", .kind = FX_CALM};
+    return g->cabin.inside && g->book.weather ? &destination_shelter(g)->event[g->book.weather - 1]
+                                              : &calm;
+}
+bool event_thunders(const Game *g) {
+    EventKind kind = lookout_event(g)->kind;
+    return kind == FX_LIGHTNING || kind == FX_DRYLIGHT;
+}
 const Room *cabin_room(const RoomBook *b, uint32_t id) {
     return id ? &b->rooms[id - 1] : &b->hearth;
 }

@@ -126,7 +126,7 @@ Interaction field_near(const Game *g) {
                ? (stage == 2 ? NEAR_TREASURE : NEAR_READ)
                : NEAR_NONE;
 }
-static const char *bearing(float yaw) {
+const char *compass_bearing(float yaw) {
     static const char *names[] = {"north", "northeast", "east", "southeast",
                                   "south", "southwest", "west", "northwest"};
     return names[((int)floorf(yaw * 4 / PI + .5f) + 8) % 8];
@@ -149,14 +149,14 @@ void field_refresh(Game *g) {
     int stage = field_stage(g);
     if (stage == 1)
         snprintf(g->field_note, sizeof g->field_note, "%s Head %s. %s", d->notes[1],
-                 bearing(clue_yaw(w, 0)),
+                 compass_bearing(clue_yaw(w, 0)),
                  d->skill == ECHO   ? "Sound the pipes from shortest to tallest."
                  : d->skill == DUSK ? "Return in evening light."
                                     : "Sight along the two markers.");
     else if (stage == 2)
         snprintf(g->field_note, sizeof g->field_note,
-                 "The last marks point %s. Look for %s beyond them.", bearing(clue_yaw(w, 1)),
-                 d->signs[2]);
+                 "The last marks point %s. Look for %s beyond them.",
+                 compass_bearing(clue_yaw(w, 1)), d->signs[2]);
     else if (stage == 3)
         snprintf(g->field_note, sizeof g->field_note,
                  "Discovered %s. Recorded in your field guide.", d->signs[2]);
@@ -172,7 +172,7 @@ bool field_read(Game *g) {
         float yaw = clue_yaw(w, 1);
         if (d->skill == ALIGN && cosf(g->yaw - yaw) < .935f) {
             snprintf(g->field_note, sizeof g->field_note,
-                     "Sight %s along the two markers, then read them.", bearing(yaw));
+                     "Sight %s along the two markers, then read them.", compass_bearing(yaw));
             return false;
         }
         if (d->skill == DUSK && (g->hour < 16.5f || g->hour > 19.5f)) {

@@ -408,13 +408,28 @@ void landscape(Mesh *m, Forest *forest, const Game *g, float cx, float cz) {
 }
 static void foundations(Mesh *m, const Forest *forest, const Game *g, Pose pose) {
     const Cabin *c = &g->cabin;
+    Footing footing = destination_shelter(g)->footing;
     for (int i = -2; i <= 2; i++)
         for (int j = -1; j <= 1; j += 2) {
             float x = i * (g->rules->layout[0].width - .3f) * .5f,
                   z = j * (g->rules->layout[0].depth - .18f);
             Vec point = cabin_world(c, x, 0, z);
             float depth = fmaxf(.45f, c->y - height_at(&g->world, point.x, point.z) + .38f);
-            bool timber = depth > 1.15f || c->tree_supported;
+            if (footing == BASE_STRUTS || footing == BASE_PEGS || footing == BASE_STILTS) {
+                bool strut = footing == BASE_STRUTS, peg = footing == BASE_PEGS;
+                float thick = strut ? .22f : peg ? .14f : .19f;
+                Color leg = rgb(strut ? 0x797d81 : peg ? 0x795d48 : 0x8b734f);
+                box_material(m, pose, (Vec){x, -depth * .5f, z}, (Vec){thick, depth, thick}, leg,
+                             strut ? 0 : 3);
+                if (strut) {
+                    box(m, pose, (Vec){x, -depth + .12f, z}, (Vec){.84f, .24f, .88f},
+                        rgb(0x606770));
+                    box(m, pose, (Vec){x, -depth * .34f, z}, (Vec){.32f, depth * .45f, .32f},
+                        rgb(0xada99b));
+                }
+                continue;
+            }
+            bool timber = footing == BASE_TIMBER && (depth > 1.15f || c->tree_supported);
             box_material(m, pose, (Vec){x, -depth * .5f, z}, (Vec){.44f, depth, .46f},
                          rgb(timber ? 0x72533a : 0x807c6d), timber ? 3 : 0);
             box(m, pose, (Vec){x, -depth + .18f, z}, (Vec){.64f, .38f, .66f}, rgb(0x7e7c6d));
@@ -453,7 +468,7 @@ void cabin_mesh(Mesh *m, Script *s, const Game *g) {
     const Layout *layout = &g->rules->layout[room->kind];
     unsigned doors = cabin_doors(g, id);
     p.angle += room->turn * (PI / 2);
-    script_room(s, m, p, room, doors, -1);
+    script_room(s, m, p, room, doors, -1, destination_shelter(g)->key);
     if (!c->inside && !c->open)
         return;
     for (int wall = FRONT; wall <= RIGHT_WALL; wall++) {
@@ -475,44 +490,11 @@ void cabin_mesh(Mesh *m, Script *s, const Game *g) {
         view.origin = transform(view, offset);
         size_t start = m->count;
         int lamps = m->light_count;
-        script_room(s, m, view, other, cabin_doors(g, next), opposite);
+        script_room(s, m, view, other, cabin_doors(g, next), opposite, destination_shelter(g)->key);
         m->light_count = lamps;
         /* The fragment shader clips this room to the active doorway for each eye. */
         for (size_t i = start; i < m->count; i++)
             m->v[i].material += 16 * (wall + 1);
-    }
-}
-/* Patrols take only the cabin site and clock as inputs. Nothing targets or collides with the hiker.
- */
-static void patrol(Mesh *m, Script *s, const Game *g, bool giant, int index) {
-    float t = fmod(g->elapsed * (giant ? .013 : .037) + index * .17, 2 * PI);
-    float clearance = 0;
-    for (int i = 0; i < g->rules->layouts; i++) {
-        const Layout *l = &g->rules->layout[i];
-        clearance = fmaxf(clearance, hypotf(l->width + (l->balcony ? 3.2f : 0.f), l->depth));
-    }
-    float rz = clearance + (giant ? 56 : 16), rx = rz + (giant ? 8 : 6);
-    Vec site = cabin_world(&g->cabin, rx * sinf(t), 0, -rz * cosf(t));
-    site.y = fmaxf(height_at(&g->world, site.x, site.z), water_at(&g->world, site.x, site.z));
-    Pose pose = {site, g->cabin.angle + atan2f(rx * cosf(t), -rz * sinf(t))};
-    script_visitor(s, m, pose, giant, (float)g->elapsed * (giant ? .73f : 3.1f) + index);
-}
-static void sheltered_weather(Mesh *m, const Game *g) {
-    bool snow = g->book.weather == LOOKOUT_SNOW;
-    uint32_t seed = g->world.seed;
-    Color col = rgb(snow ? 0xe7eeeb : 0x99b1bd);
-    const Layout *l = cabin_layout(g);
-    float shell = hypotf(l->width + 3.3f, l->depth) + 2;
-    float lift = g->cabin.room ? 9.f + 2.f * (g->cabin.room % 13) : 1.f;
-    for (int i = 0; i < 950; i++) {
-        float a = random2(i, 1, seed) * 2 * PI, rad = shell + random2(i, 2, seed) * 19;
-        float fall = (float)fmod(g->elapsed * (snow ? 2.4 : 9.2) + random2(i, 3, seed) * 21, 21);
-        Vec p = cabin_world(&g->cabin, cosf(a) * rad + .28f * (10 - fall), lift + 13 - fall,
-                            sinf(a) * rad);
-        float size = snow ? .066f : .021f;
-        Vec b = {p.x + size, p.y, p.z + size},
-            c = {p.x + (snow ? .12f : .085f), p.y - (snow ? .09f : .48f), p.z};
-        tri(m, p, b, c, col, col, col, 0);
     }
 }
 void wildlife(Mesh *m, Script *script, const Game *g) {
@@ -533,14 +515,8 @@ void wildlife(Mesh *m, Script *script, const Game *g) {
                    atan2f(g->z - a->pos.z, g->x - a->pos.x) - PI * .5f, 7, rgb(0xf5e5cd));
     }
     if (g->cabin.inside) {
-        if (g->book.predators)
-            for (int i = 0; i < 3; i++)
-                patrol(m, script, g, false, i);
-        if (g->book.giants)
-            patrol(m, script, g, true, 0);
-        if (g->book.weather == LOOKOUT_THUNDER || g->book.weather == LOOKOUT_SNOW)
-            sheltered_weather(m, g);
-        if (g->book.weather != LOOKOUT_CALM)
+        lookout_scenery(m, script, g);
+        if (lookout_event(g)->kind != FX_CALM)
             return;
     }
     if (g->weather == 2 && g->world.profile != LUNAR) {

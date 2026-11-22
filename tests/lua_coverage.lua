@@ -32,6 +32,7 @@ debug.sethook(trace,"l")
 local world=load("world")
 assert(#world.seasons==4 and #world.skies==4 and #world.trails==8)
 assert(#world.tree_shapes==4 and world.tree_shapes[3].deciduous and world.tree_shapes[4].form=="forked")
+load("shelters")
 local places=load("destinations")
 assert(#places==12)
 load("landmarks")
@@ -63,17 +64,22 @@ for k=1,#world.fauna_names do
   end
 end
 record(build_visitor)
-for _,giant in ipairs({false,true}) do
-  local n=0
-  build_visitor(giant,1.3,function(x,y,z,X,Y,Z,w,d,col)
-    assert(w>0 and d>0 and (x-X)^2+(y-Y)^2+(z-Z)^2>0)
-    n=n+1
-  end)
-  assert(n>10)
+for _,place in ipairs(places) do
+  local style=shelter_styles[place.shelter or place.profile]
+  assert(#style.events==3 and #style.sights==2 and #style.name>5)
+  for _,sight in ipairs(style.sights) do
+    local n=0
+    build_visitor(sight[2],1.3,function(x,y,z,X,Y,Z,w,d,col)
+      assert(w>0 and d>0 and math.type(col)=="integer" and (x-X)^2+(y-Y)^2+(z-Z)^2>0)
+      n=n+1
+    end)
+    assert(n>=5)
+  end
 end
+assert(not pcall(build_visitor,"missing",0,function() end))
 load("cabin")
 record(build_room)
-local function shapes(i,doors,blinds,panes,omit)
+local function shapes(i,doors,blinds,panes,omit,skin)
   local l=cabin_layouts[i+1]
   local n,lights,glass,water,ink=0,0,0,0,0
   local openings={{0,l.depth},{0,-l.depth},{l.width,0},{-l.width,0}}
@@ -90,7 +96,7 @@ local function shapes(i,doors,blinds,panes,omit)
       local cs,sn=math.cos(yaw or 0),math.sin(yaw or 0)
       if math.abs(dx*cs+dz*sn)<w/2 and math.abs(dz*cs-dx*sn)<d/2 and math.abs(y-1.65)<h/2 then blocked[k]=true end
     end
-  end)
+  end,skin)
   assert(n>140 and glass==8 and (water==1)==(i==1)); if i==0 then assert(lights==2) end
   return blocked,ink,n
 end
@@ -102,6 +108,15 @@ for i=0,#cabin_layouts-1 do
   local _,lower,more=shapes(i,0,255,0,-1);assert(lower~=ink and more>count)
   local _,glass=shapes(i,0,0,255,-1);assert(glass~=ink)
   local _,again=shapes(i,0,0,255,-1);assert(again==glass)
+end
+local skins={}
+for _,place in ipairs(places) do
+  local key=place.shelter or place.profile
+  local closed,ink=shapes(0,0,0,0,-1,key)
+  local open=shapes(0,15,255,255,-1,key)
+  assert(not skins[ink] and closed[1] and closed[2] and closed[3])
+  assert(not open[1] and not open[2] and not open[3])
+  skins[ink]=key
 end
 debug.sethook()
 local total,covered=0,0

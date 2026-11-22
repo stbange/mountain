@@ -134,11 +134,14 @@ def trail_leg(page, start, end):
 def walk_sahara_discovery(page, url):
     choose(page, "Erg Chebbi · Sahara, Morocco")
     assert v(page, 28) == 3
+    assert "Summon caravan tent" in page.locator("#cabin").inner_text()
     trail_leg(page, 1, 3)
     page.click("#use")
     assert v(page, 30) == 1
     trail_leg(page, 4, 7)
     page.click("#conditions")
+    assert page.get_by_role("group", name="Caravan tent · Local phenomena").is_visible()
+    assert page.get_by_role("button", name="Dust devils", exact=True).is_visible()
     page.get_by_role("button", name="Midday", exact=True).click()
     page.click("#close")
     page.click("#use")
@@ -341,6 +344,7 @@ def test_touch(browser, url):
     assert (v(page, 5), v(page, 6)) == (0, 3)
     choose(page, "Sarakiniko · Milos, Greece", touch=True)
     assert v(page, 28) == 2
+    assert "Summon cycladic boathouse" in page.locator("#cabin").inner_text()
     page.tap("#cabin")
     page.tap("#use")
     page.tap("#door")
@@ -451,8 +455,12 @@ def test_cabin(browser, url):
     assert not v(page, 42)
     page.click("#conditions")
     page.get_by_role("button", name="Calm", exact=True).click()
-    page.get_by_label("Watch a wolf pack").uncheck()
-    page.get_by_label("Watch a ridge giant").uncheck()
+    assert page.get_by_role(
+        "button", name="Micrometeor impacts", exact=True
+    ).is_visible()
+    assert page.get_by_role("button", name="Heavy fog", exact=True).count() == 0
+    page.get_by_label("Watch a runaway survey rover").uncheck()
+    page.get_by_label("Watch a crater-wall landslide").uncheck()
     assert not v(page, 39) and not v(page, 40) and not v(page, 41)
     ctx.close()
     print(

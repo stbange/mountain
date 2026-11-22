@@ -765,6 +765,72 @@ static void living_world(Script *script) {
     strcpy(script->rules.fauna_script, fauna_file);
     mesh_free(&animals);
 }
+static void destination_shelters(Script *s) {
+    uint32_t exterior[DEST_LIMIT] = {0};
+    Mesh mesh = {0};
+    for (int i = 0; i < s->rules.place_count; i++) {
+        Game g;
+        game_destination(&g, &s->rules, s->rules.places[i].seed, i);
+        const Shelter *skin = destination_shelter(&g);
+        CHECK(skin->name[0] && skin->sight[0].name[0] && skin->sight[1].name[0]);
+        CHECK(script_room(s, &mesh, (Pose){{0}, 0}, &g.book.hearth, 0, -1, skin->key));
+        exterior[i] = geometry_hash(&mesh);
+        for (int j = 0; j < i; j++)
+            CHECK(exterior[i] != exterior[j]);
+        mesh_clear(&mesh);
+        CHECK(game_action(&g, ACT_CABIN) && game_near(&g) == NEAR_OPEN);
+        CHECK(game_action(&g, ACT_LOOKOUT_PREDATORS) && game_action(&g, ACT_LOOKOUT_GIANTS));
+        CHECK(game_action(&g, ACT_LOOKOUT_WEATHER));
+        lookout_scenery(&mesh, s, &g);
+        CHECK(!mesh.count && lookout_event(&g)->kind == FX_CALM);
+        CHECK(game_action(&g, ACT_USE) && game_action(&g, ACT_USE));
+        CHECK(g.cabin.lookout[0].valid && g.cabin.lookout[1].valid);
+        for (int slot = 0; slot < 2; slot++) {
+            struct LookoutSite site = g.cabin.lookout[slot];
+            float x = g.cabin.x + site.dx, z = g.cabin.z + site.dz;
+            if (skin->sight[slot].habitat == ON_WATER)
+                CHECK(height_at(&g.world, x, z) < water_at(&g.world, x, z));
+            if (skin->sight[slot].habitat == ON_LAND)
+                CHECK(height_at(&g.world, x, z) > water_at(&g.world, x, z));
+        }
+        g.book.weather = 0;
+        lookout_scenery(&mesh, s, &g);
+        CHECK(mesh.count > 100 && !mesh.failed);
+        uint32_t sights = geometry_hash(&mesh);
+        mesh_clear(&mesh);
+        position(&g, -3, 1);
+        g.yaw += 1.2f;
+        lookout_scenery(&mesh, s, &g);
+        CHECK(sights == geometry_hash(&mesh) && !g.falls);
+        mesh_clear(&mesh);
+        g.book.giants = g.book.predators = false;
+        for (int mode = 0; mode < 3; mode++) {
+            CHECK(game_action(&g, ACT_LOOKOUT_WEATHER) && lookout_event(&g) == &skin->event[mode]);
+            const LookoutEvent *event = lookout_event(&g);
+            CHECK(event_thunders(&g) ==
+                  (event->kind == FX_LIGHTNING || event->kind == FX_DRYLIGHT));
+            if (g.world.profile == LUNAR)
+                CHECK(event->extinction == 0 && !event_thunders(&g));
+            lookout_scenery(&mesh, s, &g);
+            if (event->kind != FX_MIST && event->kind != FX_DRYLIGHT && event->kind != FX_HEAT)
+                CHECK(mesh.count > 0);
+            if (event_thunders(&g)) {
+                size_t between_flashes = mesh.count;
+                mesh_clear(&mesh);
+                double before_flash = g.elapsed;
+                g.elapsed = 2.8;
+                lookout_scenery(&mesh, s, &g);
+                CHECK(mesh.count > between_flashes);
+                g.elapsed = before_flash;
+            }
+            mesh_clear(&mesh);
+        }
+        g.world.place = NULL;
+        CHECK(destination_shelter(&g) == &s->rules.default_shelter);
+        cabin_forget(&g.book);
+    }
+    mesh_free(&mesh);
+}
 static void composition(Script *s) {
     Game g;
     Mesh m = {0};
@@ -888,16 +954,16 @@ static void composition(Script *s) {
     Pose pose = {{0}, 0};
     Room example = {.kind = 4, .key = 218, .blinds = 54, .panes = 23};
     mesh_clear(&m);
-    CHECK(script_room(s, &m, pose, &example, 6, -1));
+    CHECK(script_room(s, &m, pose, &example, 6, -1, "alpine"));
     original = geometry_hash(&m);
     size = m.count;
     mesh_clear(&m);
-    CHECK(script_room(s, &m, pose, &example, 6, -1));
+    CHECK(script_room(s, &m, pose, &example, 6, -1, "alpine"));
     CHECK(size == m.count && original == geometry_hash(&m));
     CHECK(luaL_dostring(s->L, "function build_room() error('broken room') end; function "
                               "build_visitor() error('broken visitor') end") == LUA_OK);
-    CHECK(!script_room(s, &m, pose, &example, 0, -1) && strstr(s->error, "broken room"));
-    CHECK(!script_visitor(s, &m, pose, false, 0));
+    CHECK(!script_room(s, &m, pose, &example, 0, -1, "alpine") && strstr(s->error, "broken room"));
+    CHECK(!script_visitor(s, &m, pose, &s->rules.places[0].shelter.sight[0], 0));
     cabin_forget(&g.book);
     mesh_clear(&m);
     box(&m, pose, (Vec){0}, (Vec){1, 2, 3}, rgb(0xe4e0dd));
@@ -1085,6 +1151,7 @@ int main(int argc, char **argv) {
     alpine_footing(&s.rules);
     high_passes(&s.rules);
     living_world(&s);
+    destination_shelters(&s);
     composition(&s);
     script_close(&s);
     isolated_journal();
