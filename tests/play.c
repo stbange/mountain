@@ -147,6 +147,45 @@ static bool shelter_playtest(int id) {
             mountain_action(ACT_LOOKOUT_GIANTS) && mountain_action(ACT_CABIN));
     return true;
 }
+static bool kitchen_playtest(void) {
+    REQUIRE(mountain_visit(0));
+    double bearing = mountain_value(2);
+    REQUIRE(walk_to(7 * sin(bearing), -7 * cos(bearing)) && mountain_value(13) == NEAR_FORAGE);
+    press(SDLK_E);
+    REQUIRE(mountain_stock(1, 0) >= 2 && mountain_value(13) != NEAR_FORAGE);
+    press(SDLK_R);
+    press(SDLK_Q);
+    press(SDLK_1);
+    press(SDLK_2);
+    int coffee = (int)mountain_value(53), cookies = (int)mountain_value(54);
+    REQUIRE(mountain_recipe_value(coffee, 2) == 2 && mountain_recipe_value(cookies, 2) == 3);
+    press(SDLK_V);
+    REQUIRE(mountain_value(13) == NEAR_CHAIR);
+    press(SDLK_E);
+    REQUIRE(mountain_value(49));
+    double x = mountain_value(0), z = mountain_value(1);
+    walk(10, 1, 1);
+    REQUIRE(mountain_value(0) == x && mountain_value(1) == z && mountain_photo());
+    mountain_frame();
+    uint32_t served = display_sample(480, 300);
+    press(SDLK_1);
+    press(SDLK_2);
+    press(SDLK_2);
+    press(SDLK_2);
+    REQUIRE(!mountain_value(48) && mountain_value(47) == coffee);
+    press(SDLK_1);
+    REQUIRE(!mountain_value(47));
+    mountain_frame();
+    REQUIRE(display_sample(480, 300) != served);
+    press(SDLK_E);
+    REQUIRE(!mountain_value(49));
+    press(SDLK_R);
+    REQUIRE(!mountain_value(12));
+    REQUIRE(mountain_visit(LUNAR) && mountain_stock(1, 0) >= 2 &&
+            mountain_recipe_value(cookies, 1));
+    return true;
+}
+
 static bool run(void) {
     mountain_frame();
     uint32_t trail = display_sample(480, 300);
@@ -206,6 +245,7 @@ static bool run(void) {
     REQUIRE((uint32_t)mountain_value(34) == 0xffffff);
     for (int i = 0; i < (int)mountain_value(29); i++)
         REQUIRE(shelter_playtest(i));
+    REQUIRE(kitchen_playtest());
     return true;
 }
 int main(int argc, char **argv) {
@@ -220,6 +260,6 @@ int main(int argc, char **argv) {
              "passed. Both mountains supported a five-kilometre round trip, distant "
              "wildlife "
              "and a remote cabin visit. All twelve destination shelters, encounters and "
-             "photography passed.");
+             "photography passed. Foraging, brewing, baking and balcony dining passed.");
     return passed ? 0 : 1;
 }

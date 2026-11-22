@@ -171,6 +171,27 @@ bool cabin_use(Game *g, Action action) {
     b->revision++;
     return true;
 }
+/* Carry the tray through the same garden and balcony doors used on foot. */
+bool cabin_to_balcony(Game *g) {
+    if (!g->cabin.inside || g->cabin.room || !g->rules->layout[2].balcony)
+        return false;
+    Cabin f = cabin_frame(g);
+    put(g, f, cabin_layout(g)->width - .8f, 0);
+    if (!(cabin_doors(g, 0) & (1u << RIGHT_WALL)) && !cabin_use(g, ACT_USE))
+        return false;
+    if (!cabin_use(g, ACT_USE))
+        return false;
+    f = cabin_frame(g);
+    put(g, f, -cabin_layout(g)->width + .8f, 0);
+    if (!(cabin_doors(g, g->cabin.room) & (1u << LEFT_WALL)) && !cabin_use(g, ACT_USE))
+        return false;
+    if (!cabin_use(g, ACT_USE))
+        return false;
+    put(g, f, -cabin_layout(g)->width - 1.15f, 1.78f);
+    g->yaw = f.angle - PI / 2;
+    g->pitch = -.12f;
+    return true;
+}
 void cabin_walk(Game *g, Vec target) {
     Cabin frame = cabin_frame(g);
     Vec p = cabin_local(&frame, target.x, target.z), old = cabin_local(&frame, g->x, g->z);

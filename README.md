@@ -43,6 +43,26 @@ Open **Trail map → Choose a destination** on the web, or use **[** and **]** o
 
 Read the first sign with **E**, the touch interaction prompt or **Select** in VR. Follow what it tells you. For a sighting, look along the pair of markers. For a sound puzzle, walk to each pipe and sound it from shortest to tallest. For an evening reading, wait for the light or choose **Golden hour**. The last clue points toward a treasure you can see, approach and photograph. The field guide keeps your clues and collection across visits and restarts on the same device. All discoveries are optional. **Generate a new trail here** opens a different seed in the same region.
 
+## Foraging, cooking and balcony coffee
+
+Open **Cookbook** on the web or press **Q** on desktop. The book contains **312 named recipes**. Each of the twelve destinations has 24 local dishes and drinks, and 24 more recipes combine ingredients from different worlds. The 54 drinks include coffee, tea, cocoa, cordials and coolers.
+
+You can have coffee and cookies on your first visit.
+
+1. Open **Cookbook → Go to Hearth Room kitchen**. On desktop, press **R**, then **Q**.
+2. Choose **Brew coffee** and **Bake oat cookies**, or press **1** and **2** in the desktop cookbook. Roasted coffee, oats, flour and sugar are always in the cupboard.
+3. Choose **Carry tray to balcony**, or press **V** in the desktop cookbook. This takes you through the winter garden to its railed balcony.
+4. Use **Sit down** by the chair. You can look around and take a photo, sip the coffee twice and eat three cookies. On desktop, **E** sits or stands, **1** sips, **2** eats and **P** saves a photo. On the web, **Camera → Take photo** adds it to your photo journal for PNG download.
+
+Each destination has 20 ingredients to gather. Try the first patch a few paces down the trail. Walk up and choose **Gather** or press **E**. Further patches favour local habitats, from rock pools at Reynisfjara to cultivated relays on the Moon. Ingredients yield more in their peak season. Picked patches regrow after a kilometre of hiking or a rest in the shelter. Your pantry travels with you and saves on the same device.
+
+Use the cookbook to find a recipe, check its ingredients or pin it. In the winter garden you can grow a pinned ingredient native to the current world. At the kitchen, **Experiment** lets you try one to three ingredients with a cooking method. It can discover a named recipe or make a field infusion or bowl. Photograph a destination’s house dish while seated to unlock a table setting. Find it under **Basket → Change tableware**.
+
+In the desktop cookbook, **Left/Right** browses, **Tab** changes shelf, **Enter** cooks and **I** pins. **X** opens an experiment, **Tab** selects a field and the arrows change its value. In WebXR, press either thumbstick to open the book, tilt the right stick sideways to browse and use the trigger to cook. The right face buttons brew coffee and bake cookies, the right grip carries the tray, and the trigger sits or stands. Once seated, the right face buttons sip and eat, and the left grip takes a photo. Tilt the right stick up in the cookbook to experiment and use the left primary button to choose the field.
+
+The loose [cookbook](assets/scripts/cookbook.lua) defines stable ingredient and recipe IDs. The [kitchen artwork](assets/scripts/kitchen-art.lua) defines the plants, relay containers, tableware and food models.
+
+
 ## Life on the mountain
 
 Open **Season & weather** or click the season beside your elevation. Pick spring, summer, autumn or winter and choose the sky or time of day. A manual selection holds that condition. **Cycle through seasons** and **Let the weather change** run independently. Changing trails retains your chosen conditions. Spring glacier lilies give way to summer paintbrush and lupines, then autumn seed heads. In suitable daylight, butterflies and bumblebees visit the flowers. Winter precipitation falls as snow.

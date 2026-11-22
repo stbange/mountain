@@ -522,6 +522,105 @@ def test_lighting(browser, url):
     )
 
 
+def test_kitchen(browser, url):
+    from PIL import ImageChops
+
+    ctx = browser.new_context(
+        viewport={"width": 720, "height": 480},
+        has_touch=True,
+        is_mobile=True,
+        accept_downloads=True,
+    )
+    page = ctx.new_page()
+    page.set_default_timeout(90000)
+    ready(page, url)
+    book = page.locator("#cookbook")
+
+    def button(name):
+        return page.get_by_role("button", name=name, exact=True)
+
+    book.tap()
+    shelf = page.get_by_role("combobox", name="Recipe shelf")
+    search = page.get_by_role("searchbox", name="Find a recipe")
+    assert page.locator(".cook-pages span").inner_text() == "1 / 4"
+    shelf.select_option("Cross-world")
+    assert page.locator(".cook-pages span").inner_text() == "1 / 4"
+    shelf.select_option("Drinks")
+    assert page.locator(".cook-pages span").inner_text() == "1 / 9"
+    search.fill("mocha")
+    assert page.locator(".recipe-card h3").inner_text() == "Crater camp mocha"
+    button("Pin recipe").tap()
+    assert v(page, 46) > 288
+    search.fill("")
+    shelf.select_option("Local")
+    button("Go to Hearth Room kitchen").tap()
+    button("Brew coffee").tap()
+    button("Bake oat cookies").tap()
+    coffee, cookies = int(v(page, 53)), int(v(page, 54))
+    assert v(page, 47) == coffee and v(page, 48) == cookies
+    button("Carry tray to balcony").tap()
+    page.wait_for_function("!document.querySelector('dialog').open")
+    assert v(page, 50) and not v(page, 49) and v(page, 13) == 15
+    page.locator("#use").tap()
+    assert (
+        v(page, 49)
+        and page.locator("#sip").is_visible()
+        and page.locator("#bite").is_visible()
+    )
+    served = frame(page)
+    page.locator("#camera").tap()
+    page.locator("#shutter").tap()
+    page.wait_for_function("document.querySelector('#count').textContent==='1'")
+    page.locator("#journal").tap()
+    page.locator(".print").first.tap()
+    caption = page.locator("dialog").text_content()
+    assert "Hearth coffee and Ranger’s oat cookies" in caption, caption
+    with page.expect_download() as download:
+        button("Download PNG").tap()
+    with TemporaryDirectory() as temp:
+        target = Path(temp) / "balcony.png"
+        download.value.save_as(target)
+        photograph = Image.open(target)
+        assert photograph.format == "PNG" and photograph.size == served.size
+    page.locator("#close").tap()
+    if page.locator("#leave-camera").is_visible():
+        page.locator("#leave-camera").tap()
+    for _ in range(2):
+        page.locator("#sip").tap()
+    assert not v(page, 47) and v(page, 48) == cookies
+    for _ in range(3):
+        page.locator("#bite").tap()
+    assert not v(page, 48) and v(page, 49)
+    empty = frame(page)
+    w, h = served.size
+    # Compare the tabletop, below the skyline. A hidden serving must fail this check.
+    roi = (w // 4, h * 52 // 100, 3 * w // 4, h * 87 // 100)
+    diff = (
+        ImageChops.difference(served.crop(roi), empty.crop(roi))
+        .convert("L")
+        .histogram()
+    )
+    assert sum(diff[30:]) > sum(diff) * 0.015, (
+        "The coffee and cookies must appear on the table"
+    )
+    page.locator("#use").tap()
+    assert not v(page, 49)
+    page.reload()
+    page.wait_for_function(
+        "document.querySelector('#loading').hidden && Module._mountain_value(17)===1"
+    )
+    assert not v(page, 47) and not v(page, 48) and v(page, 46) > 288
+    assert (
+        page.evaluate("Module._mountain_recipe_value(" + str(cookies) + ",1)")
+        and page.locator("#count").inner_text() == "1"
+    )
+    ctx.close()
+    print(
+        "Touch cookbook, regional and travelling recipes, brewing, baking, visible balcony servings, dining, PNG and persistent progress passed.",
+        flush=True,
+    )
+
+
 def test_headset(browser, url):
     ctx = browser.new_context(viewport={"width": 880, "height": 540})
     ctx.add_init_script(path=str(Path(__file__).with_name("headset.js")))
@@ -571,6 +670,48 @@ def test_headset(browser, url):
     assert v(page, 13) == 10 and v(page, 42)
     page.evaluate("testHeadset.session.dispatchEvent(new Event('squeeze'))")
     assert not v(page, 12) and v(page, 13) == 3
+
+    def face(hand, key):
+        page.evaluate(
+            """([hand,key])=>{
+          testHeadset.session.inputSources[hand].gamepad.buttons[key]={pressed:true};
+          window.eyeCount=testHeadset.frames;
+        }""",
+            [hand, key],
+        )
+        page.wait_for_function("testHeadset.frames>window.eyeCount+1")
+        page.evaluate(
+            """([hand,key])=>{
+          testHeadset.session.inputSources[hand].gamepad.buttons[key]={pressed:false};
+          window.eyeCount=testHeadset.frames;
+        }""",
+            [hand, key],
+        )
+        page.wait_for_function("testHeadset.frames>window.eyeCount+1")
+
+    face(1, 3)
+    assert v(page, 51)
+    face(1, 4)
+    face(1, 5)
+    assert v(page, 47) == v(page, 53) and v(page, 48) == v(page, 54)
+    page.evaluate("testHeadset.session.dispatchEvent(new Event('squeeze'))")
+    assert not v(page, 51) and v(page, 50)
+    page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
+    assert v(page, 49)
+    page.evaluate(
+        """()=>{const e=new Event('squeeze');e.inputSource={handedness:'left'};testHeadset.session.dispatchEvent(e)}"""
+    )
+    page.wait_for_function("document.querySelector('#count').textContent==='1'")
+    face(1, 4)
+    face(1, 5)
+    assert (
+        page.evaluate("Module._mountain_recipe_value(Module._mountain_value(53),2)")
+        == 1
+    )
+    assert (
+        page.evaluate("Module._mountain_recipe_value(Module._mountain_value(54),2)")
+        == 2
+    )
     page.evaluate("testHeadset.session.end()")
     assert page.evaluate("mountainXR.session===null")
     assert max(ImageStat.Stat(frame(page)).stddev) > 15
@@ -611,6 +752,7 @@ if __name__ == "__main__":
             test_headset,
             test_lighting,
             test_cabin,
+            test_kitchen,
         ):
             browser = driver.chromium.launch(
                 executable_path=os.environ.get("CHROMIUM") or None,

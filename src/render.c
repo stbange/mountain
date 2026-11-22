@@ -124,10 +124,11 @@ struct Display {
     GLint shadow_vp, shadow_clock, shadow_pattern, near_light, far_light, light_params;
     GLint sky_fill, bounce, cloud_origin, house_pass, lamps[4], lamp_colour[4];
     int shadow_weather;
-    uint64_t cabin_revision;
+    uint64_t cabin_revision, pantry_revision;
     GLint room_origin, room_axes, lookout, event_air;
     uint32_t shadow_notes;
-    double life_time;
+    double life_time, next_regrowth;
+    int harvest_x, harvest_z;
     float life_hour, life_x, life_z;
     int life_weather;
     uint32_t life_notes;
@@ -145,7 +146,7 @@ struct Display {
     int lake_season, lake_weather;
     uint32_t lake_seed;
     GLint vp, inv, eye, layer, air, zenith, horizon, sun, clock;
-    Buffer land, house, life, screen, hud;
+    Buffer land, house, life, kitchen, screen, hud;
     Mesh scratch;
     int cx, cz, season, fw, fh;
     uint32_t seed;
@@ -427,9 +428,10 @@ Display *display_open(const char *root) {
 void display_close(Display *d) {
     if (!d)
         return;
-    GLuint buffers[] = {d->land.id, d->house.id, d->life.id, d->screen.id, d->hud.id};
+    GLuint buffers[] = {d->land.id,    d->house.id,  d->life.id,
+                        d->kitchen.id, d->screen.id, d->hud.id};
     GLuint tex[] = {d->atlas, d->font, d->frame, d->lake_tex, d->trail, d->canopy, d->clouds};
-    qDeleteBuffers(5, buffers);
+    qDeleteBuffers((GLsizei)(sizeof buffers / sizeof *buffers), buffers);
     qDeleteTextures(7, tex);
     for (int i = 0; i < 2; i++)
         qDeleteTextures(1, &d->shadows[i].texture);
@@ -484,6 +486,7 @@ static void scenery(Display *d, Script *s, const Game *g) {
 #endif
         qActiveTexture(GL_TEXTURE0);
     }
+    bool world_changed = !d->valid || d->seed != g->world.seed;
     bool site = shifted || d->season != g->season || c->present != old->present || c->x != old->x ||
                 c->z != old->z || c->angle != old->angle;
     int cx = (int)floorf((g->x + 14) / 28) * 28, cz = (int)floorf((g->z + 14) / 28) * 28;
@@ -517,6 +520,26 @@ static void scenery(Display *d, Script *s, const Game *g) {
             qUniform3f(d->lamp_colour[i], lamp->colour.r, lamp->colour.g * .70f,
                        lamp->colour.b * .40f);
         }
+    }
+    int hx = (int)floor((g->world.ox % 24 + (double)g->x) / 24 + .5);
+    int hz = (int)floor((g->world.oz % 24 + (double)g->z) / 24 + .5);
+    if (world_changed || site || old->inside != c->inside || old->room != c->room ||
+        hx != d->harvest_x || hz != d->harvest_z || d->pantry_revision != g->pantry.revision ||
+        g->pantry.distance >= d->next_regrowth) {
+        mesh_clear(&d->scratch);
+        kitchen_scenery(&d->scratch, g);
+        upload(&d->kitchen, &d->scratch, GL_STATIC_DRAW);
+        d->harvest_x = hx;
+        d->harvest_z = hz;
+        d->pantry_revision = g->pantry.revision;
+        d->next_regrowth = INFINITY;
+        for (unsigned i = 0; i < g->pantry.picks; i++) {
+            double at = g->pantry.picked[i].at + 1000;
+            if (at > g->pantry.distance && at < d->next_regrowth)
+                d->next_regrowth = at;
+        }
+        d->shadows[0].valid = d->shadows[1].valid = false;
+        d->lake_time = -100;
     }
     d->house_in_view = house_in_view;
     d->cached = *c;
@@ -592,11 +615,15 @@ static void outdoor(Display *d, Viewport vp) {
     qUniform1i(d->layer, 0);
     qBindTexture(GL_TEXTURE_2D, d->atlas);
     draw(d->land);
+    if (!d->cached.inside)
+        draw(d->kitchen);
     draw(d->life);
 }
 static void draw_house(Display *d) {
     qUniform1i(d->house_pass, 1);
     draw(d->house);
+    if (d->cached.inside)
+        draw(d->kitchen);
     qUniform1i(d->house_pass, 0);
 }
 static void sunlight_maps(Display *d, const Game *g, Vec centre, Vec sun) {
@@ -647,6 +674,7 @@ static void sunlight_maps(Display *d, const Game *g, Vec centre, Vec sun) {
                 qBindFramebuffer(GL_FRAMEBUFFER, d->static_fb);
             qClear(GL_DEPTH_BUFFER_BIT);
             draw(d->land);
+            draw(d->kitchen);
             draw(d->house);
             map->centre = centre;
             map->hour = g->hour;
@@ -862,7 +890,76 @@ static void finish_hud(Display *d, Mesh *m) {
     qUniform1i(d->layer, 2);
     draw(d->hud);
 }
+static void cookbook_hud(Display *d, const Game *g, int w, int h, bool xr) {
+    Mesh *m = &d->scratch;
+    mesh_clear(m);
+    const Cookbook *b = g->rules->cookbook;
+    const Recipe *r = &b->recipes[g->selection];
+    Color ink = rgb(0x283d32), cream = rgb(0xf4ebd5), gold = rgb(0xe9ba83);
+    int x = xr ? 100 : 8, y = xr ? 86 : 9, cap = (w - x - 24) / 6;
+    if (cap > 76)
+        cap = 76;
+    const char *shelves[] = {"Local recipes", "Ready to make", "Drinks", "Across worlds",
+                             "All recipes"};
+    char text[360];
+    if (g->experiment.open) {
+        note_lines(m, "Kitchen experiment", x, y, cap, w, h, ink, gold);
+        y += 20;
+        for (int i = 0; i < 4; i++) {
+            int id = i ? g->experiment.items[i - 1] : b->methods[g->experiment.method];
+            const char *name = i ? (id ? b->ingredients[id].name : "Empty") : b->recipes[id].method;
+            snprintf(text, sizeof text, "%s %s / %s", i == g->experiment.field ? ">" : " ",
+                     i ? "Ingredient" : "Method", name);
+            note_lines(m, text, x, y, cap, w, h, ink, cream);
+            y += 18;
+        }
+        note_lines(m,
+                   xr ? "Left primary: field / right stick: change" : "Tab field / arrows change",
+                   x, y, cap, w, h, ink, cream);
+        y += 23;
+        note_lines(m, xr ? "Select: try / right stick up: recipes" : "Enter try / X recipes", x, y,
+                   cap, w, h, ink, cream);
+        y += 23;
+        if (*g->kitchen_note)
+            note_lines(m, g->kitchen_note, x, y, cap, w, h, ink, gold);
+        finish_hud(d, m);
+        return;
+    }
+    snprintf(text, sizeof text, "Field cookbook / %s", shelves[g->shelf]);
+    note_lines(m, text, x, y, cap, w, h, ink, gold);
+    y += 15;
+    snprintf(text, sizeof text, "%s  /  %s", r->method, r->name);
+    note_lines(m, text, x, y, cap, w, h, ink, cream);
+    y += 24;
+    kitchen_details(g, g->selection, text, sizeof text);
+    note_lines(m, text, x, y, cap, w, h, ink, cream);
+    y += 43;
+    const char *controls[] = {
+        xr ? "Right stick: recipe / left button: shelf" : "Left / Right recipe   Tab shelf   I pin",
+        xr ? "Select: cook / left grip: pin" : "Enter cook   1 coffee   2 oat cookies   3 pack",
+        xr ? "Right buttons: coffee / cookies / stick up: experiment"
+           : "V carry tray to balcony   G grow pinned crop",
+        xr ? "Right grip: carry tray / press stick: close"
+           : "X experiment   Space rest   T tableware   Q close"};
+    for (int i = 0; i < 4; i++) {
+        note_lines(m, controls[i], x, y, cap, w, h, ink, cream);
+        y += 20;
+    }
+    if (g->pantry.pin) {
+        snprintf(text, sizeof text, "Pinned / %s", b->recipes[g->pantry.pin].name);
+        note_lines(m, text, x, y, cap, w, h, ink, gold);
+        y += 21;
+    }
+    if (*g->kitchen_note)
+        note_lines(m, g->kitchen_note, x, y, cap, w, h, ink, gold);
+    finish_hud(d, m);
+}
+
 static void headset_note(Display *d, const Game *g) {
+    if (g->cookbook_open) {
+        cookbook_hud(d, g, 500, 400, true);
+        return;
+    }
     Interaction nearby = game_near(g);
     const char *note = NULL;
     if (g->fall_time > 0 || g->exposed)
@@ -873,6 +970,14 @@ static void headset_note(Display *d, const Game *g) {
         note = g->lookout_note;
     else if (g->note_timer > 0)
         note = field_hint(g);
+    else if (nearby == NEAR_FORAGE)
+        note = "Select to gather / press stick for cookbook";
+    else if (nearby == NEAR_KITCHEN || nearby == NEAR_GARDEN)
+        note = "Select to open the field cookbook";
+    else if (nearby == NEAR_CHAIR)
+        note = "Select to sit at the balcony table";
+    else if (g->seated)
+        note = "Select stand / right buttons sip or eat / left grip photo";
     else if (nearby == NEAR_ENTER || nearby == NEAR_EXIT)
         note = "Select to cross; left grip closes door";
     else if (nearby == NEAR_READ)
@@ -887,6 +992,10 @@ static void headset_note(Display *d, const Game *g) {
     finish_hud(d, m);
 }
 static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool help) {
+    if (g->cookbook_open) {
+        cookbook_hud(d, g, w, h, false);
+        return;
+    }
     Mesh *m = &d->scratch;
     mesh_clear(m);
     char title[144], line[144];
@@ -899,7 +1008,7 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
         snprintf(title, sizeof title, "%s / %s", shelter->name, cabin_layout(g)->name);
         snprintf(line, sizeof line, "%02d:%02d   %s", time / 60, time % 60, lookout_event(g)->name);
     }
-    const char *actions[] = {"WASD HIKE  /  P PHOTO  /  H CABIN  /  F1 GUIDE",
+    const char *actions[] = {"WASD HIKE  /  Q COOKBOOK  /  H SHELTER  /  F1 GUIDE",
                              "E  OPEN DOOR",
                              "E  STEP INSIDE  /  F  CLOSE DOOR",
                              "E  STEP OUTSIDE  /  F  CLOSE DOOR",
@@ -911,7 +1020,12 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
                              "E  OPEN WINDOW  /  J  ADJUST BLIND",
                              "E  CLOSE WINDOW  /  J  ADJUST BLIND",
                              "E  OPEN BALCONY DOOR",
-                             "E  CROSS TO OTHER SIDE  /  F  CLOSE DOOR"};
+                             "E  CROSS TO OTHER SIDE  /  Z  SIT ON DECK",
+                             "E  GATHER  /  Q  COOKBOOK",
+                             "E  OPEN KITCHEN",
+                             "E  SIT AT BALCONY TABLE",
+                             "1  SIP  /  2  EAT  /  Z  STAND",
+                             "E  OPEN GARDEN COOKBOOK"};
     Color ink = rgb(0x233a31), cream = rgb(0xf0edda);
     int panel = (int)fminf(w - 5, fmaxf(200, 20 + 6.f * fmaxf(strlen(title), strlen(line))));
     quad(m, pixel(6, 7, w, h), pixel(panel, 7, w, h), pixel(panel, 32, w, h), pixel(6, 32, w, h),

@@ -62,17 +62,17 @@ EM_JS(void, write_notes, (uint32_t notes), {
     try { localStorage.setItem("mountain.field-notes.v1", String(notes >>> 0)); }
     catch (e) {}
 });
-EM_JS(char *, load_cabin, (void), {
+EM_JS(char *, load_saved, (const char *part), {
     try {
-        const value = localStorage.getItem("mountain.cabin.v1");
+        const value = localStorage.getItem("mountain."+UTF8ToString(part)+".v1");
         if (!value) return 0;
         const size = lengthBytesUTF8(value)+1, p = _malloc(size);
         if (p) stringToUTF8(value,p,size);
         return p;
     } catch(e) {return 0;}
 });
-EM_JS(bool, store_cabin, (const char *data), {
-    try { localStorage.setItem("mountain.cabin.v1",UTF8ToString(data)); return true; }
+EM_JS(bool, store_saved, (const char *part,const char *data), {
+    try { localStorage.setItem("mountain."+UTF8ToString(part)+".v1",UTF8ToString(data)); return true; }
     catch(e) {return false;}
 });
 // clang-format on
@@ -101,9 +101,9 @@ static void write_notes(uint32_t notes) {
     if (SDL_SaveFile(tmp, bytes, n))
         SDL_RenamePath(tmp, notes_path);
 }
-static char *load_cabin(void) {
+static char *load_saved(const char *part) {
     char path[1200];
-    snprintf(path, sizeof path, "%s.cabin", notes_path);
+    snprintf(path, sizeof path, "%s.%s", notes_path, part);
     char *file = SDL_LoadFile(path, NULL);
     char *text = NULL;
     if (file) {
@@ -115,17 +115,25 @@ static char *load_cabin(void) {
     }
     return text;
 }
-static bool store_cabin(const char *data) {
+static bool store_saved(const char *part, const char *data) {
     char path[1200], tmp[1210];
-    snprintf(path, sizeof path, "%s.cabin", notes_path);
+    snprintf(path, sizeof path, "%s.%s", notes_path, part);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     return SDL_SaveFile(tmp, data, strlen(data)) && SDL_RenamePath(tmp, path);
 }
 #endif
-static bool cabin_dirty;
+static bool cabin_dirty, pantry_dirty;
+static void save_pantry(void) {
+    char *text = pantry_encode(&game.pantry);
+    pantry_dirty = !text || !store_saved("pantry", text);
+    free(text);
+    if (pantry_dirty)
+        snprintf(game.kitchen_note, sizeof game.kitchen_note,
+                 "Pantry save unavailable. Your basket is kept for this visit.");
+}
 static void save_cabin(void) {
     char *text = cabin_encode(&game.book);
-    cabin_dirty = !text || !store_cabin(text);
+    cabin_dirty = !text || !store_saved("cabin", text);
     free(text);
     if (cabin_dirty) {
         snprintf(game.field_note, sizeof game.field_note,
@@ -199,8 +207,16 @@ PUBLIC int mountain_action(int action) {
         }
     }
     bool thunder_outside = event_thunders(&game);
-    uint64_t revision = game.book.revision;
+    uint64_t revision = game.book.revision, meals = game.pantry.revision;
+    if (action >= ACT_COOKBOOK || action == ACT_USE)
+        game.kitchen_note[0] = 0;
     int ok = game_action(&game, (Action)action);
+    if (game.pantry.revision != meals || pantry_dirty)
+        save_pantry();
+    if (*game.kitchen_note && (action >= ACT_COOKBOOK || action == ACT_USE)) {
+        snprintf(game.lookout_note, sizeof game.lookout_note, "%.99s", game.kitchen_note);
+        game.lookout_timer = 5;
+    }
     if (game.book.revision != revision || cabin_dirty)
         save_cabin();
     if (thunder_outside && !event_thunders(&game) && instrument)
@@ -277,9 +293,11 @@ static void arrive(int dest, uint32_t seed) {
     bool cycle = game.cycle_seasons, changing = game.changing_weather;
     if (instrument && event_thunders(&game))
         SDL_ClearAudioStream(instrument);
+    Pantry pantry = game.pantry;
     RoomBook book = game.book;
     game_destination(&game, &scripts.rules, seed, dest);
     game.book = book;
+    game.pantry = pantry;
     game.notes = notes;
     field_refresh(&game);
     if (audio && strcmp(old, ambience(game.world.profile))) {
@@ -331,6 +349,115 @@ PUBLIC void mountain_pause(int state) {
     paused = state != 0;
     input_f = input_r = 0;
 }
+PUBLIC int mountain_choose_recipe(int id) { return kitchen_select(&game, id); }
+PUBLIC const char *mountain_recipe(int id, int field) {
+    static char text[360];
+    const Cookbook *b = game.rules->cookbook;
+    if (id < 1 || id > b->recipe_max)
+        return "";
+    const Recipe *r = &b->recipes[id];
+    if (field == 1)
+        return r->method;
+    if (field == 2) {
+        kitchen_details(&game, id, text, sizeof text);
+        return text;
+    }
+    if (field == 3)
+        return r->staples;
+    return r->name;
+}
+PUBLIC int mountain_recipe_value(int id, int field) {
+    const Cookbook *b = game.rules->cookbook;
+    if (id < 1 || id > b->recipe_max || !*b->recipes[id].name)
+        return -1;
+    const Recipe *r = &b->recipes[id];
+    switch (field) {
+    case 0:
+        return kitchen_ready(&game, id);
+    case 1:
+        return game.pantry.learned[id];
+    case 2:
+        return game.pantry.portions[id];
+    case 3:
+        return r->region;
+    case 4:
+        return kitchen_beverage(r->serving);
+    default:
+        return field >= 5 && field <= 7 ? r->need[field - 5] : 0;
+    }
+}
+PUBLIC const char *mountain_ingredient(int id, int field) {
+    const Cookbook *b = game.rules->cookbook;
+    if (id < 1 || id > b->item_max)
+        return "";
+    return field ? b->ingredients[id].habitat : b->ingredients[id].name;
+}
+PUBLIC int mountain_stock(int id, int field) {
+    const Cookbook *b = game.rules->cookbook;
+    if (id < 1 || id > b->item_max)
+        return 0;
+    if (field == 1)
+        return game.pantry.found[id];
+    if (field == 2)
+        return b->ingredients[id].region;
+    if (field == 3)
+        return b->ingredients[id].season;
+    return game.pantry.stock[id];
+}
+PUBLIC int mountain_prepare(int id) {
+    if (!kitchen_select(&game, id))
+        return 0;
+    bool editing = game.experiment.open;
+    game.experiment.open = false;
+    int ok = mountain_action(ACT_COOK);
+    game.experiment.open = editing;
+    return ok;
+}
+PUBLIC int mountain_pack(int id) {
+    if (!kitchen_pack(&game, id))
+        return 0;
+    save_pantry();
+    return 1;
+}
+PUBLIC int mountain_experiment(const char *method, int a, int b, int c) {
+    int items[] = {a, b, c};
+    if (!kitchen_mix(&game, method, items, c ? 3 : b ? 2 : 1))
+        return 0;
+    save_pantry();
+    return 1;
+}
+PUBLIC void mountain_flush_pantry(void) {
+    if ((pantry_dirty || game.pantry.revision || game.pantry.picks) && scripts.rules.cookbook)
+        save_pantry();
+}
+PUBLIC int mountain_meal_photo(void) {
+    if (!kitchen_photo(&game))
+        return 0;
+    save_pantry();
+    return 1;
+}
+static const char *forage_hint(void) {
+    static char text[128];
+    if (game.cabin.inside)
+        return "";
+    ForagePatch patches[25];
+    int n = forage_patches(&game, patches, 2), nearest = -1;
+    float best = 1000;
+    for (int i = 0; i < n; i++) {
+        float d = hypotf(patches[i].px - game.x, patches[i].pz - game.z);
+        if (patches[i].ripe && d < best) {
+            nearest = i;
+            best = d;
+        }
+    }
+    if (nearest < 0)
+        return "Continue along the trail to find another patch.";
+    ForagePatch p = patches[nearest];
+    snprintf(text, sizeof text, "%s / %.0f m %s", game.rules->cookbook->ingredients[p.item].name,
+             (double)best, compass_bearing(atan2f(p.px - game.x, game.z - p.pz)));
+    return text;
+}
+
 PUBLIC const char *mountain_label(int key) {
     switch (key) {
     case 6:
@@ -345,6 +472,19 @@ PUBLIC const char *mountain_label(int key) {
         return game.world.place
                    ? game.world.place->signs[field_stage(&game) < 2 ? field_stage(&game) : 2]
                    : "";
+    case 17:
+        return game.kitchen_note;
+    case 18: {
+        ForagePatch p;
+        int id = forage_near(&game, &p);
+        return id ? mountain_ingredient(id, 0) : "";
+    }
+    case 19:
+        return forage_hint();
+    case 20:
+        return game.pantry.drink < 0 ? "Field infusion" : mountain_recipe(game.pantry.drink, 0);
+    case 21:
+        return game.pantry.food < 0 ? "Field bowl" : mountain_recipe(game.pantry.food, 0);
     case 11:
         return game.world.place ? game.world.place->notes[2] : "";
     case 12:
@@ -488,6 +628,40 @@ PUBLIC double mountain_value(int key) {
         return game.book.giants;
     case 43:
         return cabin_dirty;
+    case 44:
+        return scripts.rules.cookbook->recipe_max;
+    case 45:
+        return scripts.rules.cookbook->item_max;
+    case 46:
+        return game.pantry.pin;
+    case 47:
+        return game.pantry.drink;
+    case 48:
+        return game.pantry.food;
+    case 49:
+        return game.seated;
+    case 50:
+        return kitchen_deck(&game);
+    case 51:
+        return game.cookbook_open;
+    case 52:
+        return game.selection;
+    case 53:
+        return scripts.rules.cookbook->coffee;
+    case 54:
+        return scripts.rules.cookbook->cookies;
+    case 55:
+        return game.cabin.inside && cabin_room(&game.book, game.cabin.room)->kind == 2;
+    case 56:
+        return game.pantry.tableware;
+    case 57:
+        return pantry_dirty;
+    case 58:
+        return scripts.rules.cookbook->house[game.world.profile];
+    case 59:
+        return game.pantry.setting;
+    case 60:
+        return game.experiment.open;
     case 42: {
         int n = cabin_window(&game);
         return n >= 0 && (cabin_room(&game.book, game.cabin.room)->blinds & (1u << n));
@@ -536,13 +710,79 @@ bool mountain_photo(void) {
     SDL_free(dir);
     bool ok = display_save(display, &scripts, &game, path);
     if (ok) {
+        mountain_meal_photo();
         SDL_Log("Photograph saved to %s", path);
         SDL_SetWindowTitle(window, path);
     }
     return ok;
 }
 static void key(SDL_Keycode k) {
+    if (game.cookbook_open) {
+        switch (k) {
+        case SDLK_Q:
+        case SDLK_ESCAPE:
+            mountain_action(ACT_COOKBOOK);
+            break;
+        case SDLK_RIGHT:
+        case SDLK_RIGHTBRACKET:
+            mountain_action(ACT_RECIPE_NEXT);
+            break;
+        case SDLK_LEFT:
+        case SDLK_LEFTBRACKET:
+            mountain_action(ACT_RECIPE_PREV);
+            break;
+        case SDLK_TAB:
+            mountain_action(ACT_SHELF);
+            break;
+        case SDLK_RETURN:
+        case SDLK_E:
+            mountain_action(ACT_COOK);
+            break;
+        case SDLK_1:
+            mountain_prepare(scripts.rules.cookbook->coffee);
+            break;
+        case SDLK_2:
+            mountain_prepare(scripts.rules.cookbook->cookies);
+            break;
+        case SDLK_X:
+            mountain_action(ACT_EXPERIMENT);
+            break;
+        case SDLK_3:
+            mountain_pack(game.selection);
+            break;
+        case SDLK_I:
+            mountain_action(ACT_PIN);
+            break;
+        case SDLK_G:
+            mountain_action(ACT_GROW);
+            break;
+        case SDLK_V:
+            mountain_action(ACT_TRAY);
+            break;
+        case SDLK_T:
+            mountain_action(ACT_SETTING);
+            break;
+        case SDLK_SPACE:
+            mountain_action(ACT_REST);
+            break;
+        default:
+            break;
+        }
+        return;
+    }
     switch (k) {
+    case SDLK_Q:
+        mountain_action(ACT_COOKBOOK);
+        break;
+    case SDLK_Z:
+        mountain_action(ACT_SIT);
+        break;
+    case SDLK_1:
+        mountain_action(ACT_SIP);
+        break;
+    case SDLK_2:
+        mountain_action(ACT_BITE);
+        break;
     case SDLK_H:
         mountain_action(ACT_CABIN);
         break;
@@ -638,7 +878,7 @@ bool mountain_step(void) {
     f += keys[SDL_SCANCODE_W] + keys[SDL_SCANCODE_UP] - keys[SDL_SCANCODE_S] -
          keys[SDL_SCANCODE_DOWN];
     r += keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A];
-    if (!help)
+    if (!help && !game.cookbook_open)
         game_look(&game, (keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT]) * dt * 1.45f, 0);
 #endif
     if (!paused && !help)
@@ -654,6 +894,8 @@ bool mountain_step(void) {
     return running;
 }
 void mountain_close(void) {
+    mountain_flush_pantry();
+    pantry_dirty = false;
     if (cabin_dirty)
         save_cabin();
     cabin_forget(&game.book);
@@ -711,10 +953,14 @@ bool mountain_open(const char *asset_dir, int width, int height) {
     }
     game_init(&game, &scripts.rules, scripts.rules.seed);
     game.notes = read_notes();
-    char *saved_cabin = load_cabin();
+    char *saved_cabin = load_saved("cabin");
     if (saved_cabin && !cabin_decode(&game.book, saved_cabin, scripts.rules.layouts))
         SDL_Log("Could not read the saved cabin floor plan.");
     free(saved_cabin);
+    char *saved_pantry = load_saved("pantry");
+    if (saved_pantry && !pantry_decode(&game.pantry, saved_pantry))
+        SDL_Log("Could not read the saved pantry.");
+    free(saved_pantry);
     field_refresh(&game);
     window = SDL_CreateWindow("Mountain", width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!window || !(context = SDL_GL_CreateContext(window)) || !(display = display_open(assets))) {

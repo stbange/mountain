@@ -34,5 +34,7 @@ static void remove_test_journal(void) {
     char cabin[1100];
     SDL_snprintf(cabin, sizeof cabin, "%s.cabin", test_notes);
     SDL_RemovePath(cabin);
+    SDL_snprintf(cabin, sizeof cabin, "%s.pantry", test_notes);
+    SDL_RemovePath(cabin);
     SDL_RemovePath(test_notes);
 }

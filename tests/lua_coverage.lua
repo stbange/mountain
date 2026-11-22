@@ -118,6 +118,49 @@ for _,place in ipairs(places) do
   assert(not open[1] and not open[2] and not open[3])
   skins[ink]=key
 end
+local cookbook=load("cookbook")
+local seen, used, fingerprints, local_count, drinks, travelling = {}, {}, {}, {}, 0, 0
+assert(#cookbook.ingredients==240 and #cookbook.recipes==312 and #cookbook.house==12)
+for i,item in ipairs(cookbook.ingredients) do
+  assert(item[1]==i and item[2]==(i-1)//20 and #item[3]>2 and #item[4]>2 and item[6]>=-1 and item[6]<4 and (item[7]=="open" or item[7]=="shelter" or item[7]=="water"))
+end
+local glass={cup=true,tea=true,glass=true}
+for i,r in ipairs(cookbook.recipes) do
+  assert(r[1]==i and not seen[r[3]] and #r[4]>2)
+  seen[r[3]]=true
+  drinks=drinks+(glass[r[5]] and 1 or 0)
+  local regions, parts={},{}
+  for j=7,#r do
+    local key=r[j]
+    assert(cookbook.ingredients[key] and not parts[key])
+    used[key]=true;parts[key]=true;regions[cookbook.ingredients[key][2]]=true
+  end
+  local fingerprint={r[4],r[6]}
+  for n=1,#cookbook.ingredients do if parts[n] then fingerprint[#fingerprint+1]=tostring(n) end end
+  local key=table.concat(fingerprint,"|")
+  assert(not fingerprints[key],r[3]);fingerprints[key]=true
+  if r[2]<0 then
+    local n=0;for _ in pairs(regions) do n=n+1 end;assert(n>=2)
+    travelling=travelling+1
+  else
+    for region in pairs(regions) do assert(region==r[2]) end
+    local_count[r[2]]=(local_count[r[2]] or 0)+1
+  end
+end
+assert(travelling==24 and drinks==54)
+for i=1,240 do assert(used[i]) end
+for i,house in ipairs(cookbook.house) do assert(local_count[i-1]==24 and cookbook.recipes[house][2]==i-1) end
+assert(#cookbook.recipes[cookbook.coffee]==6 and #cookbook.recipes[cookbook.cookies]==6)
+load("kitchen-art");record(kitchen_model)
+for form=0,14 do
+  local n=0
+  kitchen_model(form,function(x,y,z,X,Y,Z,r,R,sides,flat,colour,mat)
+    assert((X-x)^2+(Y-y)^2+(Z-z)^2>0 and math.min(r,R)>0 and sides>=3 and flat>0 and math.type(colour)=="integer" and mat>=0)
+    n=n+1
+  end)
+  assert(n>=5)
+end
+
 debug.sethook()
 local total,covered=0,0
 for src,lines in pairs(included) do

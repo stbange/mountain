@@ -318,6 +318,137 @@ static int draw_limb(lua_State *L) {
     }
     return 0;
 }
+static int kitchen_int(lua_State *L, int row, int col, int lo, int hi) {
+    lua_geti(L, row, col);
+    lua_Integer value = luaL_checkinteger(L, -1);
+    lua_pop(L, 1);
+    if (value < lo || value > hi)
+        luaL_error(L, "cookbook number outside its range");
+    return (int)value;
+}
+static int read_cookbook(lua_State *L) {
+    static const char *const forms[] = {"berry",   "herb", "cap",   "fruit", "seed",    "root",
+                                        "seaweed", "pod",  "relay", "cup",   "cookies", "bake",
+                                        "bowl",    "tea",  "glass", NULL};
+    Cookbook *b = lua_touserdata(L, lua_upvalueindex(1));
+    lua_getfield(L, 1, "ingredients");
+    int count = (int)luaL_len(L, -1);
+    for (int k = 1; k <= count; k++) {
+        lua_geti(L, 2, k);
+        int id = kitchen_int(L, 3, 1, 1, PANTRY_ITEMS);
+        Ingredient *item = &b->ingredients[id];
+        if (*item->name)
+            return luaL_error(L, "duplicate ingredient ID");
+        item->region = kitchen_int(L, 3, 2, 0, DEST_LIMIT - 1);
+        string_at(L, 3, 3, item->name, sizeof item->name);
+        string_at(L, 3, 4, item->habitat, sizeof item->habitat);
+        lua_geti(L, 3, 5);
+        item->form = (KitchenModel)luaL_checkoption(L, -1, NULL, forms);
+        lua_pop(L, 1);
+        item->season = kitchen_int(L, 3, 6, -1, 3);
+        static const char *const niches[] = {"open", "shelter", "water", NULL};
+        lua_geti(L, 3, 7);
+        item->niche = (ForageHabitat)luaL_checkoption(L, -1, "open", niches);
+        lua_pop(L, 1);
+        if (!*item->name || item->form > PATCH_RELAY)
+            return luaL_error(L, "invalid harvest model");
+        if (id > b->item_max)
+            b->item_max = id;
+        b->items++;
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    for (int id = 1; id <= b->item_max; id++) {
+        const Ingredient *item = &b->ingredients[id];
+        if (*item->name)
+            b->regional[item->region][b->regional_count[item->region]++] = id;
+    }
+    lua_getfield(L, 1, "recipes");
+    count = (int)luaL_len(L, -1);
+    for (int k = 1; k <= count; k++) {
+        lua_geti(L, 2, k);
+        int id = kitchen_int(L, 3, 1, 1, COOKBOOK_RECIPES);
+        Recipe *r = &b->recipes[id];
+        if (*r->name)
+            return luaL_error(L, "duplicate recipe ID");
+        r->region = kitchen_int(L, 3, 2, -1, DEST_LIMIT - 1);
+        string_at(L, 3, 3, r->name, sizeof r->name);
+        string_at(L, 3, 4, r->method, sizeof r->method);
+        lua_geti(L, 3, 5);
+        r->serving = (KitchenModel)luaL_checkoption(L, -1, NULL, forms);
+        lua_pop(L, 1);
+        string_at(L, 3, 6, r->staples, sizeof r->staples);
+        int n = (int)luaL_len(L, 3) - 6;
+        if (!*r->name || !*r->method || r->serving < DISH_CUP || n < 0 || n > 3)
+            return luaL_error(L, "invalid recipe");
+        for (int i = 0; i < n; i++) {
+            int item = kitchen_int(L, 3, 7 + i, 1, PANTRY_ITEMS);
+            if (!*b->ingredients[item].name ||
+                (r->region >= 0 && b->ingredients[item].region != r->region))
+                return luaL_error(L, "unknown or nonlocal recipe ingredient");
+            for (int j = 0; j < i; j++)
+                if (r->need[j] == item)
+                    return luaL_error(L, "duplicate recipe ingredient");
+            r->need[i] = (uint16_t)item;
+        }
+        int method = 0;
+        while (method < b->method_count && strcmp(r->method, b->recipes[b->methods[method]].method))
+            method++;
+        if (method == b->method_count)
+            b->methods[b->method_count++] = id;
+        if (id > b->recipe_max)
+            b->recipe_max = id;
+        b->count++;
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    lua_getfield(L, 1, "house");
+    for (int i = 0; i < (int)luaL_len(L, 2); i++) {
+        if (i >= DEST_LIMIT)
+            return luaL_error(L, "too many house dishes");
+        int id = kitchen_int(L, 2, i + 1, 1, b->recipe_max);
+        if (!*b->recipes[id].name || b->recipes[id].region != i)
+            return luaL_error(L, "invalid house recipe");
+        b->house[i] = id;
+    }
+    lua_pop(L, 1);
+    lua_getfield(L, 1, "coffee");
+    lua_getfield(L, 1, "cookies");
+    b->coffee = (int)luaL_checkinteger(L, -2);
+    b->cookies = (int)luaL_checkinteger(L, -1);
+    if (b->coffee < 1 || b->coffee > b->recipe_max || b->recipes[b->coffee].serving != DISH_CUP ||
+        b->cookies < 1 || b->cookies > b->recipe_max ||
+        b->recipes[b->cookies].serving != DISH_COOKIES)
+        return luaL_error(L, "missing house refreshments");
+    return 0;
+}
+static bool load_kitchen(Script *s, const char *assets) {
+    char path[1024];
+    lua_State *L = s->L;
+    Cookbook *b = s->rules.cookbook = calloc(1, sizeof *b);
+    if (!b || !(b->models = calloc(KITCHEN_MODELS, sizeof(Mesh))))
+        return false;
+    lua_pushlightuserdata(L, b);
+    lua_pushcclosure(L, read_cookbook, 1);
+    snprintf(path, sizeof path, "%s/scripts/cookbook.lua", assets);
+    if (luaL_dofile(L, path) != LUA_OK || lua_pcall(L, 1, 0, 0) != LUA_OK)
+        return failure(s);
+    snprintf(path, sizeof path, "%s/scripts/kitchen-art.lua", assets);
+    if (luaL_dofile(L, path) != LUA_OK)
+        return failure(s);
+    for (int i = 0; i < KITCHEN_MODELS; i++) {
+        lua_getglobal(L, "kitchen_model");
+        lua_pushinteger(L, i);
+        lua_pushlightuserdata(L, &b->models[i]);
+        lua_pushcclosure(L, draw_limb, 1);
+        if (lua_pcall(L, 2, 0, 0) != LUA_OK)
+            return failure(s);
+        if (b->models[i].failed)
+            return false;
+    }
+    return true;
+}
+
 static bool load_landmarks(Script *s, const char *assets) {
     char path[1024];
     snprintf(path, sizeof path, "%s/scripts/landmarks.lua", assets);
@@ -399,6 +530,8 @@ bool script_load(Script *s, const char *assets) {
         if (luaL_dofile(L, path) != LUA_OK || lua_pcall(L, 1, 0, 0) != LUA_OK)
             return failure(s);
     }
+    if (!load_kitchen(s, assets))
+        return false;
     if (s->rules.place_count && !load_landmarks(s, assets))
         return false;
     if (s->rules.survey.file[0] && !survey_load(&s->rules.survey, assets)) {
@@ -425,6 +558,15 @@ void script_close(Script *s) {
     if (s->L)
         lua_close(s->L);
     s->L = NULL;
+    Cookbook *b = s->rules.cookbook;
+    if (b) {
+        if (b->models)
+            for (int i = 0; i < KITCHEN_MODELS; i++)
+                mesh_free(&b->models[i]);
+        free(b->models);
+        free(b);
+        s->rules.cookbook = NULL;
+    }
     for (int i = 0; i < s->rules.place_count; i++) {
         Mesh *art = s->rules.places[i].art;
         if (art) {

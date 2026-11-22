@@ -831,6 +831,205 @@ static void destination_shelters(Script *s) {
     }
     mesh_free(&mesh);
 }
+static void field_kitchen(Script *s) {
+    const Rules *rules = &s->rules;
+    const Cookbook *book = rules->cookbook;
+    CHECK(book && book->count == 312 && book->items == 240);
+    Game g;
+    Mesh m = {0};
+    int drinks = 0, travel = 0, local[DEST_LIMIT] = {0};
+    for (int d = 0; d < rules->place_count; d++) {
+        game_destination(&g, rules, rules->places[d].seed, d);
+        CHECK(book->regional_count[g.world.profile] == 20);
+        ForagePatch p[25], again[25];
+        CHECK(!forage_patches(&g, p, -1) && !forage_patches(&g, p, 3));
+        int n = forage_patches(&g, p, 2);
+        CHECK(n && n == forage_patches(&g, again, 2));
+        for (int i = 0; i < n; i++) {
+            CHECK(p[i].item == again[i].item && p[i].px == again[i].px && p[i].pz == again[i].pz);
+            CHECK(book->ingredients[p[i].item].region == (int)g.world.profile);
+        }
+        CHECK(forage_patches(&g, p, 0) == 1 && p->ripe);
+        CHECK(!forage_near(&g, again));
+        g.x = p->px;
+        g.z = p->pz;
+        CHECK(forage_near(&g, again) == p->item && game_near(&g) == NEAR_FORAGE);
+        g.fall_time = 1;
+        CHECK(!kitchen_gather(&g));
+        g.fall_time = 0;
+        g.pantry.stock[p->item] = UINT16_MAX;
+        CHECK(!kitchen_gather(&g));
+        g.pantry.stock[p->item] = 0;
+        CHECK(game_action(&g, ACT_USE) && !kitchen_gather(&g));
+        CHECK(g.pantry.stock[p->item] >= 2 && g.pantry.picks == 1 && g.pantry.found[p->item]);
+        CHECK(forage_patches(&g, again, 0) && !again->ripe);
+        g.pantry.distance = 1000;
+        CHECK(kitchen_gather(&g) && g.pantry.picks == 1);
+        /* Visit whole patch neighbourhoods, including remote oases and coastlines.
+           Every advertised ingredient must actually occur outdoors. */
+        bool seen[PANTRY_ITEMS + 1] = {0};
+        int species = 0;
+        for (int k = 0; k < 2500 && species < 20; k++) {
+            int ix = k % 50, iz = k / 50;
+            double wx = (ix % 2 ? -1 : 1) * ((ix + 1) / 2) * 120;
+            double wz = (iz % 2 ? -1 : 1) * ((iz + 1) / 2) * 120;
+            observe(&g, wx, wz);
+            n = forage_patches(&g, p, 2);
+            for (int i = 0; i < n; i++)
+                if (!seen[p[i].item]) {
+                    seen[p[i].item] = true;
+                    species++;
+                }
+        }
+        if (species != 20)
+            fprintf(stderr, "Found %d of 20 outdoor ingredients at %s\n", species,
+                    rules->places[d].name);
+        CHECK(species == 20);
+        observe(&g, 1000000100, -1000000520);
+        n = forage_patches(&g, p, 2);
+        CHECK(n >= 0 && n <= 25);
+        for (int i = 0; i < n; i++)
+            CHECK(fabs(p[i].px - g.x) < 75 && fabs(p[i].pz - g.z) < 75);
+        cabin_forget(&g.book);
+    }
+    game_destination(&g, rules, rules->places[0].seed, 0);
+    for (int id = 1; id <= book->recipe_max; id++) {
+        const Recipe *r = &book->recipes[id];
+        if (r->region < 0)
+            travel++;
+        else
+            local[r->region]++;
+        drinks += kitchen_matches(&g, id, SHELF_DRINKS);
+        CHECK(kitchen_matches(&g, id, SHELF_ALL));
+        CHECK(kitchen_matches(&g, id, SHELF_TRAVEL) == (r->region < 0));
+    }
+    for (int d = 0; d < rules->place_count; d++)
+        CHECK(local[d] == 24);
+    CHECK(travel == 24 && drinks == 54);
+    kitchen_scenery(&m, &g);
+    CHECK(m.count > 0);
+    mesh_clear(&m);
+    char details[200] = "unchanged";
+    kitchen_details(&g, 0, details, 0);
+    CHECK(!strcmp(details, "unchanged"));
+    kitchen_details(&g, 666, details, sizeof details);
+    CHECK(!*details);
+    kitchen_details(&g, 1, details, sizeof details);
+    CHECK(strstr(details, "mountain huckleberry (0)") && strstr(details, "oats"));
+    CHECK(!kitchen_select(&g, -1) && !kitchen_ready(&g, 0) &&
+          !kitchen_matches(&g, 999, SHELF_LOCAL));
+    CHECK(!kitchen_action(&g, ACT_PIN) && !kitchen_action(&g, ACT_GROW) &&
+          !kitchen_action(&g, ACT_REST));
+    CHECK(!kitchen_action(&g, ACT_SIT) && !kitchen_action(&g, ACT_TRAY) && !kitchen_photo(&g));
+    CHECK(!kitchen_pack(&g, book->coffee) && !kitchen_pack(&g, 999));
+    CHECK(game_action(&g, ACT_COOKBOOK) && g.cookbook_open && g.selection == book->coffee);
+    CHECK(!game_action(&g, ACT_COOK) && game_action(&g, ACT_HOME) && !g.cookbook_open);
+    CHECK(!game_action(&g, ACT_TRAY) && !forage_patches(&g, (ForagePatch[25]){{0}}, 1));
+    CHECK(game_action(&g, ACT_COOKBOOK) && kitchen_select(&g, 1) && !game_action(&g, ACT_COOK));
+    for (int i = 0; i < SHELF_COUNT; i++) {
+        CHECK(game_action(&g, ACT_SHELF) && game_action(&g, ACT_RECIPE_NEXT) &&
+              game_action(&g, ACT_RECIPE_PREV));
+        CHECK(kitchen_matches(&g, g.selection, g.shelf));
+    }
+    CHECK(game_action(&g, ACT_EXPERIMENT) && !game_action(&g, ACT_COOK));
+    CHECK(game_action(&g, ACT_RECIPE_NEXT) && game_action(&g, ACT_RECIPE_PREV) &&
+          game_action(&g, ACT_SHELF));
+    g.pantry.stock[1] = 1;
+    CHECK(game_action(&g, ACT_RECIPE_NEXT) && g.experiment.items[0] == 1);
+    CHECK(game_action(&g, ACT_COOK) && g.pantry.learned[1]);
+    CHECK(game_action(&g, ACT_EXPERIMENT) && !g.experiment.open);
+    CHECK(kitchen_select(&g, book->coffee) && game_action(&g, ACT_COOK));
+    CHECK(kitchen_select(&g, book->cookies) && game_action(&g, ACT_COOK));
+    CHECK(g.pantry.drink == book->coffee && g.pantry.food == book->cookies);
+    CHECK(!game_action(&g, ACT_SIP) && !game_action(&g, ACT_BITE));
+    CHECK(game_action(&g, ACT_TRAY) && kitchen_deck(&g) && game_near(&g) == NEAR_CHAIR);
+    CHECK(!g.cookbook_open && g.book.count == 1 && (cabin_doors(&g, 0) & (1 << RIGHT_WALL)));
+    CHECK(game_action(&g, ACT_USE) && g.seated && game_near(&g) == NEAR_SEATED);
+    Vec seated = eye(&g);
+    CLOSE(seated.y, g.cabin.y + 1.24f);
+    game_tick(&g, .1f, 1, 1);
+    CLOSE(g.x, seated.x);
+    CLOSE(g.z, seated.z);
+    game_look(&g, .4f, -.15f);
+    CHECK(g.seated);
+    kitchen_scenery(&m, &g);
+    size_t both = m.count;
+    CHECK(both > 0);
+    CHECK(game_action(&g, ACT_SIP) && game_action(&g, ACT_SIP) && !game_action(&g, ACT_SIP));
+    mesh_clear(&m);
+    kitchen_scenery(&m, &g);
+    CHECK(m.count && m.count < both);
+    CHECK(g.pantry.food == book->cookies && !g.pantry.drink && !kitchen_photo(&g));
+    for (int i = 0; i < 3; i++)
+        CHECK(game_action(&g, ACT_BITE));
+    mesh_clear(&m);
+    kitchen_scenery(&m, &g);
+    CHECK(!m.count);
+    CHECK(!game_action(&g, ACT_BITE) && game_action(&g, ACT_USE) && !g.seated);
+    CHECK(!game_action(&g, ACT_GROW));
+    CHECK(kitchen_select(&g, 1) && game_action(&g, ACT_PIN) && g.pantry.pin == 1);
+    CHECK(game_action(&g, ACT_GROW) && g.pantry.stock[1] == 1);
+    CHECK(kitchen_select(&g, 25) && game_action(&g, ACT_PIN) && !game_action(&g, ACT_GROW));
+    CHECK(game_action(&g, ACT_PIN) && !g.pantry.pin);
+    CHECK(game_action(&g, ACT_REST) && !g.pantry.picks);
+    CHECK(game_action(&g, ACT_HOME) && g.book.count == 1);
+    for (int id = 1; id <= book->item_max; id++)
+        g.pantry.stock[id] = 100;
+    for (int id = 1; id <= book->recipe_max; id++) {
+        CHECK(kitchen_select(&g, id) && kitchen_ready(&g, id) && game_action(&g, ACT_COOK));
+        CHECK(g.pantry.learned[id] && g.pantry.portions[id] > 0);
+    }
+    g.pantry.portions[1] = UINT16_MAX;
+    CHECK(kitchen_select(&g, 1) && !game_action(&g, ACT_COOK));
+    g.pantry.portions[1] = 0;
+    int items[] = {1, 2, 3};
+    CHECK(!kitchen_mix(&g, NULL, items, 1) && !kitchen_mix(&g, "Bake", NULL, 1) &&
+          !kitchen_mix(&g, "Bake", items, 4));
+    CHECK(!kitchen_mix(&g, "Missing method", items, 3) && !kitchen_mix(&g, "Bake", (int[]){0}, 1));
+    CHECK(!kitchen_mix(&g, "Bake", (int[]){1, 1}, 2));
+    CHECK(kitchen_mix(&g, "Griddle", items, 1) && g.pantry.food == 1 && g.pantry.portions[1] == 1);
+    CHECK(kitchen_mix(&g, "Steep", items, 3) && g.pantry.drink == -1);
+    CHECK(kitchen_mix(&g, "Roast", items, 3) && g.pantry.food == -1);
+    CHECK(game_action(&g, ACT_TRAY) && g.book.count == 1 && game_action(&g, ACT_SIT));
+    CHECK(game_action(&g, ACT_SIP) && game_action(&g, ACT_BITE) && !g.pantry.custom_drink &&
+          !g.pantry.custom_food);
+    CHECK(kitchen_pack(&g, book->house[0]) && kitchen_photo(&g) && !kitchen_photo(&g));
+    CHECK(g.pantry.tableware == 1 && g.pantry.setting == 1);
+    mesh_clear(&m);
+    kitchen_scenery(&m, &g);
+    CHECK(m.count);
+    CHECK(game_action(&g, ACT_SETTING) && !g.pantry.setting && game_action(&g, ACT_SETTING) &&
+          g.pantry.setting == 1);
+    CHECK(game_action(&g, ACT_HOME) && !g.seated);
+    g.pantry.picks = 1;
+    g.pantry.picked[0] = (Harvest){33, 2, -12345678901, 4567890123, 7.25};
+    g.pantry.distance = 501.25;
+    g.pantry.found[8] = 1;
+    char *saved = pantry_encode(&g.pantry);
+    Pantry copy = {0};
+    CHECK(saved && pantry_decode(&copy, saved));
+    free(saved);
+    CHECK(copy.food == book->house[0] && copy.setting == 1 && copy.learned[1] && copy.found[8]);
+    CHECK(copy.distance == g.pantry.distance && copy.picked[0].x == g.pantry.picked[0].x &&
+          copy.picks == 1);
+    const char *bad[] = {"Broken",
+                         "KIT1 0 0 0 0 0 0 0 nan\nEND",
+                         "KIT1 0 0 0 0 0 0 0 0\nI 1 1",
+                         "KIT1 0 0 0 0 0 0 0 0\nI 1 3\nI 1 3\nEND",
+                         "KIT1 0 0 0 0 0 0 0 0\nR 1 3\nR 1 3\nEND",
+                         "KIT1 0 0 0 0 0 0 0 0\nI 0 4\nEND",
+                         "KIT1 0 0 0 0 0 0 0 0\nH 2 1 3 2 9\nEND",
+                         "KIT1 1 2 0 0 0 0 0 0\nEND",
+                         "KIT1 0 0 0 0 0 0 0 0\nX 1\nEND"};
+    for (size_t i = 0; i < sizeof bad / sizeof *bad; i++)
+        CHECK(!pantry_decode(&copy, bad[i]) && copy.food == book->house[0]);
+    CHECK(pantry_decode(&copy, "KIT1 -1 -1 0 0 0 3 4 0\nEND") && copy.custom_drink == 4 &&
+          copy.custom_food == 3);
+    CHECK(pantry_decode(&copy, "KIT1 0 0 0 0 0 0 0 0\nEND") && !copy.food && !copy.drink);
+    mesh_free(&m);
+    cabin_forget(&g.book);
+}
+
 static void composition(Script *s) {
     Game g;
     Mesh m = {0};
@@ -981,6 +1180,74 @@ static void event_key(SDL_Keycode k) {
     CHECK(SDL_PushEvent(&e));
     CHECK(mountain_step());
 }
+static void kitchen_platform(const char *assets) {
+    CHECK(mountain_visit(0));
+    CHECK(mountain_value(44) == 312 && mountain_value(45) == 240 && !mountain_value(57));
+    for (int key = 44; key <= 59; key++)
+        CHECK(isfinite(mountain_value(key)));
+    int coffee = (int)mountain_value(53), cookies = (int)mountain_value(54);
+    CHECK(!strcmp(mountain_recipe(coffee, 0), "Hearth coffee") &&
+          !strcmp(mountain_recipe(coffee, 1), "Brew"));
+    CHECK(strstr(mountain_recipe(coffee, 2), "roasted coffee") && *mountain_recipe(coffee, 3));
+    CHECK(!*mountain_recipe(999, 0) && mountain_recipe_value(0, 1) == -1 &&
+          mountain_recipe_value(1, 9) == 0);
+    CHECK(mountain_recipe_value(1, 5) == 1 && mountain_recipe_value(coffee, 4) &&
+          !mountain_recipe_value(cookies, 4));
+    CHECK(mountain_recipe_value(cookies, 3) == 1 && !*mountain_ingredient(999, 1) &&
+          !mountain_stock(999, 0));
+    CHECK(*mountain_ingredient(1, 1) && mountain_stock(1, 3) == -1 && !mountain_stock(1, 2));
+    CHECK(!mountain_prepare(0) && !mountain_prepare(coffee) && !mountain_pack(coffee) &&
+          !mountain_meal_photo());
+    CHECK(*mountain_label(19) && !*mountain_label(18) && !mountain_stock(1, 1));
+    double yaw = mountain_value(2);
+    CHECK(walk_to(7 * sin(yaw), -7 * cos(yaw)) &&
+          !strcmp(mountain_label(18), mountain_ingredient(1, 0)));
+    CHECK(mountain_action(ACT_USE) && mountain_stock(1, 1) && mountain_stock(1, 0) >= 2);
+    CHECK(mountain_action(ACT_HOME) && !*mountain_label(19));
+    CHECK(!mountain_experiment("Bake", 0, 0, 0) && mountain_experiment("Griddle", 1, 0, 0));
+    event_key(SDLK_Q);
+    CHECK(mountain_value(51));
+    mountain_frame();
+    Mat p = perspective(1, 1, .08f, 2400), v = identity();
+    mountain_xr_active(1);
+    mountain_xr_eye(&p, &v, 0, 0, 180, 120);
+    mountain_xr_active(0);
+    event_key(SDLK_X);
+    CHECK(mountain_value(60));
+    mountain_frame();
+    event_key(SDLK_X);
+    SDL_Keycode browse[] = {SDLK_RIGHT, SDLK_LEFT,   SDLK_TAB, SDLK_I, SDLK_G, SDLK_SPACE,
+                            SDLK_T,     SDLK_RETURN, SDLK_1,   SDLK_2, SDLK_3, SDLK_Q};
+    for (size_t i = 0; i < sizeof browse / sizeof *browse; i++)
+        event_key(browse[i]);
+    CHECK(mountain_pack(coffee) && mountain_pack(cookies));
+    CHECK(mountain_value(47) == coffee && mountain_value(48) == cookies);
+    CHECK(!strcmp(mountain_label(20), mountain_recipe(coffee, 0)) &&
+          !strcmp(mountain_label(21), mountain_recipe(cookies, 0)));
+    event_key(SDLK_Q);
+    event_key(SDLK_V);
+    CHECK(mountain_value(50) && mountain_value(55) && !mountain_value(51));
+    event_key(SDLK_Z);
+    CHECK(mountain_value(49));
+    mountain_frame();
+    mountain_xr_active(1);
+    mountain_xr_eye(&p, &v, 0, 0, 180, 120);
+    mountain_xr_active(0);
+    CHECK(mountain_photo());
+    event_key(SDLK_1);
+    event_key(SDLK_2);
+    CHECK(*mountain_label(17) && !*mountain_label(19));
+    int left = mountain_recipe_value(cookies, 2);
+    int gathered = mountain_stock(1, 0);
+    CHECK(mountain_visit(LUNAR) && !mountain_value(49) && mountain_recipe_value(coffee, 1));
+    mountain_close();
+    CHECK(mountain_open(assets, 180, 120) && mountain_value(47) == coffee &&
+          mountain_value(48) == cookies);
+    CHECK(mountain_recipe_value(cookies, 2) == left && mountain_stock(1, 0) == gathered &&
+          mountain_stock(1, 1));
+    mountain_close();
+}
+
 static void platform(const char *assets) {
     CHECK(!mountain_open("/missing-mountain-assets", 120, 80));
     CHECK(mountain_open(assets, 240, 150));
@@ -1133,6 +1400,8 @@ static void platform(const char *assets) {
           !mountain_value(41));
     CHECK(mountain_value(30) == 2 && strstr(mountain_label(8), mountain_entry(BASALT, 2)));
     mountain_close();
+    CHECK(mountain_open(assets, 180, 120));
+    kitchen_platform(assets);
     remove_test_journal();
 }
 int main(int argc, char **argv) {
@@ -1152,6 +1421,7 @@ int main(int argc, char **argv) {
     high_passes(&s.rules);
     living_world(&s);
     destination_shelters(&s);
+    field_kitchen(&s);
     composition(&s);
     script_close(&s);
     isolated_journal();

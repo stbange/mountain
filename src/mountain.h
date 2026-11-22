@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "kitchen.h"
 
 #define PI 3.14159265359f
 #define RIDGES 36
@@ -180,6 +181,7 @@ typedef struct {
     bool predators, giants;
 } RoomBook;
 typedef struct {
+    Cookbook *cookbook;
     int layouts;
     Layout layout[CABIN_LAYOUTS];
     Shelter default_shelter;
@@ -220,6 +222,15 @@ typedef struct {
     const Rules *rules;
     Cabin cabin;
     RoomBook book;
+    Pantry pantry;
+    bool seated, cookbook_open;
+    int selection;
+    struct {
+        bool open;
+        int field, method, items[3];
+    } experiment;
+    RecipeShelf shelf;
+    char kitchen_note[190];
     float x, z, yaw, pitch, hour, weather_clock, season_clock;
     double walked, elapsed, safe_x, safe_z;
     uint32_t notes;
@@ -244,7 +255,21 @@ typedef enum {
     ACT_BLINDS,
     ACT_LOOKOUT_WEATHER,
     ACT_LOOKOUT_PREDATORS,
-    ACT_LOOKOUT_GIANTS
+    ACT_LOOKOUT_GIANTS,
+    ACT_COOKBOOK,
+    ACT_COOK,
+    ACT_PIN,
+    ACT_SIT,
+    ACT_SIP,
+    ACT_BITE,
+    ACT_TRAY,
+    ACT_RECIPE_NEXT,
+    ACT_RECIPE_PREV,
+    ACT_SHELF,
+    ACT_GROW,
+    ACT_REST,
+    ACT_SETTING,
+    ACT_EXPERIMENT
 } Action;
 typedef enum {
     NEAR_NONE,
@@ -259,7 +284,12 @@ typedef enum {
     NEAR_PANE_CLOSED,
     NEAR_PANE_OPEN,
     NEAR_BALCONY_DOOR,
-    NEAR_BALCONY
+    NEAR_BALCONY,
+    NEAR_FORAGE,
+    NEAR_KITCHEN,
+    NEAR_CHAIR,
+    NEAR_SEATED,
+    NEAR_GARDEN
 } Interaction;
 
 void world_destination(World *w, uint32_t seed, const Rules *r, int destination);
@@ -343,6 +373,22 @@ Interaction cabin_near(const Game *g);
 bool cabin_use(Game *g, Action action);
 void cabin_walk(Game *g, Vec target);
 void cabin_home(Game *g);
+bool cabin_to_balcony(Game *g);
+bool kitchen_deck(const Game *g);
+int forage_patches(const Game *g, ForagePatch *out, int radius);
+int forage_near(const Game *g, ForagePatch *out);
+bool kitchen_gather(Game *g);
+bool kitchen_action(Game *g, Action action);
+bool kitchen_ready(const Game *g, int recipe);
+bool kitchen_matches(const Game *g, int recipe, RecipeShelf shelf);
+bool kitchen_select(Game *g, int recipe);
+bool kitchen_mix(Game *g, const char *method, const int *items, int count);
+bool kitchen_pack(Game *g, int recipe);
+void kitchen_details(const Game *g, int recipe, char *dst, size_t size);
+bool kitchen_photo(Game *g);
+char *pantry_encode(const Pantry *p);
+bool pantry_decode(Pantry *p, const char *text);
+void kitchen_scenery(Mesh *m, const Game *g);
 char *cabin_encode(const RoomBook *book);
 bool cabin_decode(RoomBook *book, const char *text, int layouts);
 void cabin_forget(RoomBook *book);

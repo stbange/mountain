@@ -68,7 +68,7 @@ Vec eye(const Game *g) {
         float edge = fminf(l->width * .55f - fabsf(p.x), l->depth * .55f - fabsf(p.z));
         h -= .92f * smooth(.04f, 1.65f, edge);
     }
-    return (Vec){g->x, (g->fall_time > 0 ? g->fall_y : h) + 1.65f, g->z};
+    return (Vec){g->x, (g->fall_time > 0 ? g->fall_y : h) + (g->seated ? 1.24f : 1.65f), g->z};
 }
 void game_look(Game *g, float dx, float dy) {
     g->yaw = remainderf(g->yaw + dx, 2 * PI);
@@ -81,16 +81,39 @@ static void place(Game *g, float lx, float lz, bool face_back) {
     g->yaw = g->cabin.angle + (face_back ? PI : 0);
     g->pitch = 0;
 }
+static Interaction trail_interaction(const Game *g) {
+    Interaction sign = field_near(g);
+    if (sign != NEAR_NONE)
+        return sign;
+    ForagePatch patch;
+    return forage_near(g, &patch) ? NEAR_FORAGE : NEAR_NONE;
+}
 Interaction game_near(const Game *g) {
     const Cabin *c = &g->cabin;
     if (!c->present)
-        return field_near(g);
+        return trail_interaction(g);
     Vec p = cabin_local(c, g->x, g->z);
-    if (c->inside)
-        return cabin_near(g);
+    if (c->inside) {
+        if (g->seated)
+            return NEAR_SEATED;
+        Cabin f = cabin_frame(g);
+        Vec room = cabin_local(&f, g->x, g->z);
+        const Layout *l = cabin_layout(g);
+        if (l->balcony && room.x < -l->width && fabsf(room.z - 1.78f) < 1.22f)
+            return NEAR_CHAIR;
+        Interaction near = cabin_near(g);
+        if (near != NEAR_NONE)
+            return near;
+        if (!c->room && hypotf(room.x - 2.54f, room.z + 1.58f) < 1.45f)
+            return NEAR_KITCHEN;
+        if (cabin_room(&g->book, c->room)->kind == 2 && fabsf(room.x) > l->width * .34f &&
+            fabsf(room.z) < l->depth * .85f)
+            return NEAR_GARDEN;
+        return NEAR_NONE;
+    }
     float d = g->rules->layout[0].depth;
     if (fabsf(p.x) > 2.1f || p.z < d - .35f || p.z > d + 7.35f)
-        return field_near(g);
+        return trail_interaction(g);
     return c->open ? NEAR_ENTER : NEAR_OPEN;
 }
 static void enter(Game *g) {
@@ -128,6 +151,8 @@ bool game_action(Game *g, Action action) {
     Cabin *c = &g->cabin;
     if (g->fall_time > 0 && (action == ACT_CABIN || action == ACT_USE || action == ACT_DOOR))
         return false;
+    if (action >= ACT_COOKBOOK && action <= ACT_EXPERIMENT)
+        return kitchen_action(g, action);
     switch (action) {
     case ACT_CABIN:
         if (c->inside)
@@ -160,9 +185,17 @@ bool game_action(Game *g, Action action) {
         return c->inside && cabin_use(g, action);
     case ACT_DOOR:
     case ACT_USE: {
-        if (c->inside)
-            return cabin_use(g, action);
         Interaction here = game_near(g);
+        if (action == ACT_USE) {
+            if (here == NEAR_FORAGE)
+                return kitchen_gather(g);
+            if (here == NEAR_SEATED || here == NEAR_CHAIR)
+                return kitchen_action(g, ACT_SIT);
+            if (here == NEAR_KITCHEN || here == NEAR_GARDEN)
+                return kitchen_action(g, ACT_COOKBOOK);
+        }
+        if (c->inside)
+            return !g->seated && cabin_use(g, action);
         if (here == NEAR_OPEN || here == NEAR_ENTER) {
             if (here == NEAR_ENTER && action == ACT_USE)
                 enter(g);
@@ -178,6 +211,9 @@ bool game_action(Game *g, Action action) {
         if (!c->present)
             game_action(g, ACT_CABIN);
         world_position(g, c->site_x, c->site_z);
+        g->seated = false;
+        g->cookbook_open = false;
+        g->experiment.open = false;
         cabin_home(g);
         g->exposed = false;
         return true;
@@ -287,7 +323,7 @@ void game_tick(Game *g, float dt, float f, float r) {
     if (footing_recover(g, dt))
         return;
     float n = hypotf(f, r);
-    if (n < .001f)
+    if (g->seated || g->cookbook_open || n < .001f)
         return;
     float speed = g->rules->pace * dt / fmaxf(1, n);
     if (g->cabin.inside)
@@ -295,7 +331,10 @@ void game_tick(Game *g, float dt, float f, float r) {
     float x = g->x + speed * (sinf(g->yaw) * f + cosf(g->yaw) * r);
     float z = g->z + speed * (-cosf(g->yaw) * f + sinf(g->yaw) * r);
     float old_x = g->x, old_z = g->z;
+    double before = g->walked;
     move(g, x, z);
+    if (!g->cabin.inside)
+        g->pantry.distance += g->walked - before;
     footing_move(g, old_x, old_z, dt);
     world_track(g);
 }

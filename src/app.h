@@ -32,5 +32,15 @@ void mountain_frame(void);
 void mountain_xr_active(int enabled);
 void mountain_walk(float dt, float forward, float right);
 void mountain_xr_eye(const Mat *projection, const Mat *view, int x, int y, int w, int h);
+const char *mountain_recipe(int id, int field);
+const char *mountain_ingredient(int id, int field);
+int mountain_stock(int id, int field);
+int mountain_recipe_value(int id, int field);
+int mountain_prepare(int id);
+int mountain_pack(int id);
+int mountain_choose_recipe(int id);
+int mountain_experiment(const char *method, int a, int b, int c);
+int mountain_meal_photo(void);
+void mountain_flush_pantry(void);
 bool mountain_photo(void);
 #endif
