@@ -9,3 +9,5 @@ Taggart Lake elevations are derived from public-domain U.S. Geological Survey 3D
 Source: https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF/current/n44w111/USGS_1_n44w111.tif
 
 The atlas photographs are captures of Mountain. The regional landforms, lunar craters and fictional worlds are procedural interpretations by Mountain contributors. The landmark and treasure models, atlas photographs, destination shelters, spring baths, winter garden, lookout creatures, geological and mechanical sightings, surf, wind, thunder, suit resonance and pipe chimes are original CC BY 4.0 artwork and sound. The Earth destination names identify the landscapes that inspired them.
+
+The harvest patches, sealed greenhouse relays, balcony chairs, drinks, food and table settings are original artwork by Mountain contributors, licensed under CC BY 4.0.

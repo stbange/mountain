@@ -389,6 +389,16 @@ local function shell(b,i,l,doors,blinds,panes,omit,key,style)
     b(-1.34,1.98,d+.26,.24,.43,.25,0xf6c27a,7); b(-1.34,2.22,d+.26,.37,.09,.34,trim)
   end
   if l.balcony then
+    -- An outward-facing chair and a low tea table leave the door and railing clear.
+    local seat,z=-w-.92,1.78
+    for _,u in ipairs({-.29,.29}) do for _,v in ipairs({-.26,.26}) do
+      b(seat+u,.23,z+v,.075,.46,.075,trim,3)
+      b(-w-2.13+u,.35,z+v,.065,.70,.065,trim,3)
+    end end
+    for j=-2,2 do b(seat,.49,z+j*.122,.73,.09,.115,pine,3) end
+    b(seat+.32,.76,z,.09,.57,.69,oak,3)
+    for _,v in ipairs({-.33,.33}) do b(seat,.71,z+v,.67,.07,.09,oak,3) end
+    b(-w-2.13,.71,z,.72,.075,1.10,pine,3)
     local depth=d*.60
     for j=0,7 do b(-w-(j+.5)*.4,-.09,0,.39,.18,2*depth,pine,3) end
     for j=-4,4 do b(-w-3.12,.53,j*depth/4,.095,1.06,.095,trim,3) end

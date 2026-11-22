@@ -38,23 +38,32 @@ window.mountainXR = {
         timeHeld = false,
         seasonHeld = false,
         weatherHeld = false,
+        bookHeld = false,
+        editingHeld = false,
         headYaw = 0;
       const leave = () => {
         this.session = null;
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        if (val(51)) Module._mountain_action(14);
         Module._mountain_xr_active(0);
         stop();
         resize();
       };
       session.addEventListener("end", leave, { once: true });
       session.addEventListener("select", () => {
-        Module._mountain_observe(headYaw);
+        if (val(51)) Module._mountain_action(15);
+        else Module._mountain_observe(headYaw);
         refresh();
       });
       session.addEventListener("squeeze", (event) => {
         const near = val(13);
         const left = event.inputSource?.handedness === "left";
-        if (left && [9, 10].includes(near)) act(10);
+        if (val(51)) {
+          if (left) mealAction(16);
+          else if (!mealAction(20)) mealAction(14);
+        } else if (left && val(49)) {
+          capture();
+        } else if (left && [9, 10].includes(near)) act(10);
         else if (left && [1, 2, 3, 4, 5, 8, 11, 12].includes(near)) act(9);
         else act(val(11) ? 6 : 1);
       });
@@ -70,15 +79,19 @@ window.mountainXR = {
             button = false,
             season = false,
             weather = false,
-            time = false;
+            time = false,
+            book = false,
+            edit = false;
           for (const source of session.inputSources) {
             const gp = source.gamepad;
             if (!gp) continue;
+            book ||= Boolean(gp.buttons[3]?.pressed);
             const axes = gp.axes,
               x = axes[axes.length >= 4 ? 2 : 0] || 0,
               y = axes[axes.length >= 4 ? 3 : 1] || 0;
             if (source.handedness === "right") {
               turn = x;
+              edit = Math.abs(y) > 0.72;
               button = Boolean(gp.buttons[4]?.pressed);
               time = Boolean(gp.buttons[5]?.pressed);
             } else {
@@ -88,16 +101,36 @@ window.mountainXR = {
               forward = Math.abs(y) > 0.15 ? -y : 0;
             }
           }
-          if (Math.abs(turn) > 0.7 && !turned)
-            Module._mountain_look((Math.sign(turn) * Math.PI) / 6, 0);
+          if (book && !bookHeld) mealAction(14);
+          bookHeld = book;
+          if (edit && !editingHeld && val(51)) mealAction(27);
+          editingHeld = edit;
+          if (Math.abs(turn) > 0.7 && !turned) {
+            if (val(51)) mealAction(turn > 0 ? 21 : 22);
+            else Module._mountain_look((Math.sign(turn) * Math.PI) / 6, 0);
+          }
           turned = Math.abs(turn) > 0.5;
-          if (season && !seasonHeld) act(val(11) ? 12 : 4);
-          if (weather && !weatherHeld) act(val(11) ? 11 : 5);
-          if (time && !timeHeld) act(val(11) ? 13 : 3);
+          if (season && !seasonHeld) {
+            if (val(51)) mealAction(23);
+            else act(val(11) ? 12 : 4);
+          }
+          if (weather && !weatherHeld) {
+            if (val(51)) mealAction(val(55) ? 24 : 25);
+            else act(val(11) ? 11 : 5);
+          }
+          if (time && !timeHeld) {
+            if (val(51)) Module._mountain_prepare(val(54));
+            else if (val(49)) mealAction(19);
+            else act(val(11) ? 13 : 3);
+          }
           timeHeld = time;
           seasonHeld = season;
           weatherHeld = weather;
-          if (button && !summoned) act(val(11) ? 6 : 1);
+          if (button && !summoned) {
+            if (val(51)) Module._mountain_prepare(val(53));
+            else if (val(49)) mealAction(18);
+            else act(val(11) ? 6 : 1);
+          }
           summoned = button;
           const rot = pose.transform.orientation;
           headYaw = Math.atan2(

@@ -37,6 +37,11 @@ const near = [
   "Close window",
   "Open balcony door",
   "Cross balcony threshold",
+  "Gather",
+  "Open kitchen",
+  "Sit down",
+  "Stand up",
+  "Tend winter garden",
 ];
 function notice(message) {
   clearTimeout(state.toastTimer);
@@ -126,6 +131,9 @@ function refresh() {
           ? "moon"
           : "sun");
   $("use").hidden = !use || state.camera;
+  $("sip").hidden = state.camera || !val(49) || !val(47);
+  $("bite").hidden = state.camera || !val(49) || !val(48);
+  $("sit").hidden = state.camera || !val(50) || [15, 16].includes(val(13));
   $("door").hidden = state.camera || ![2, 3, 4, 5, 12].includes(val(13));
   $("blind").hidden = state.camera || ![9, 10].includes(val(13));
   $("blind").querySelector("span").textContent = val(42)
@@ -133,7 +141,9 @@ function refresh() {
     : "Lower blind";
   $("use").querySelector("span").textContent = [6, 7].includes(val(13))
     ? use + " · " + nameOf(10)
-    : use;
+    : val(13) === 13
+      ? "Gather " + nameOf(18)
+      : use;
   $("cabin").querySelector("span").textContent = inside
     ? "Hearth room"
     : val(9)
@@ -182,6 +192,13 @@ function act(action) {
         (enabled ? nameOf(action + 3) || "on" : "off"),
     );
   }
+  if (action === 2 && val(51)) {
+    openCookbook();
+    return;
+  }
+  if (action === 2 && nameOf(17)) notice(nameOf(17));
+  if (val(57))
+    notice("Pantry save unavailable. Your basket is kept for this visit.");
   if (val(43))
     notice("Cabin save unavailable. Your rooms are still here for this visit.");
   refresh();
@@ -215,7 +232,10 @@ function closeSheet() {
 sheet.addEventListener("close", () => {
   $("explore").classList.add("selected");
   $("journal").classList.remove("selected");
-  if (state.ready) Module._mountain_pause(0);
+  if (state.ready) {
+    if (val(51)) Module._mountain_action(14);
+    Module._mountain_pause(0);
+  }
   stop();
 });
 sheet.addEventListener("click", (e) => {
@@ -732,6 +752,7 @@ function guide() {
   const touch = matchMedia("(pointer:coarse)").matches;
   const entries = touch
     ? [
+        ["Field cookbook and balcony dining", "Tap Cookbook in the trail kit"],
         ["Walk", "Move the thumb pad"],
         ["Season and weather", "Tap the sky control"],
         ["Look around", "Drag the landscape"],
@@ -745,6 +766,8 @@ function guide() {
         ["Photograph a view", "Camera → Take photo"],
       ]
     : [
+        ["Field cookbook", "Q · browse anywhere, cook in the Hearth Room"],
+        ["Balcony table", "Z sit or stand · 1 sip · 2 eat"],
         ["Walk", "W A S D · ↑ ↓"],
         ["Look around", "Drag the view · ← →"],
         ["Summon or dismiss your shelter", "H · outdoors"],
@@ -841,6 +864,7 @@ async function capture() {
     id: Date.now(),
     trail: nameOf(0),
     room: val(11) ? nameOf(3) : "",
+    meal: val(49) ? trayNames() : "",
     seed: val(7),
     season: nameOf(1),
     weather: nameOf(2),
@@ -854,6 +878,7 @@ async function capture() {
     return;
   }
   shot.blob = blob;
+  const setting = Module._mountain_meal_photo();
   while (state.photos.some((p) => p.id === shot.id)) shot.id++;
   state.photos.unshift(shot);
   updateCount();
@@ -869,13 +894,18 @@ async function capture() {
       tx.onerror = fail;
       tx.onabort = fail;
     });
-    notice("Photograph saved to your journal.");
+    notice(
+      setting
+        ? "House dish photographed. A new table setting is yours."
+        : "Photograph saved to your journal.",
+    );
   } catch {
     notice("Photograph available in this tab. Download it from the journal.");
   }
 }
 function showPhoto(p) {
   openSheet(p.room || p.trail, p.season + " · " + p.time, true);
+  if (p.meal) content.append(el("p", p.meal, "field-title"));
   const img = el("img", null, "large-photo");
   img.src = photoURL(p);
   img.alt =
@@ -969,6 +999,10 @@ $("leave-camera").onclick = () => mode(false);
 $("shutter").onclick = capture;
 $("cabin").onclick = cabin;
 $("use").onclick = () => act(2);
+$("cookbook").onclick = () => openCookbook();
+$("sit").onclick = () => mealAction(17);
+$("sip").onclick = () => mealAction(18);
+$("bite").onclick = () => mealAction(19);
 $("door").onclick = () => act(9);
 $("blind").onclick = () => act(10);
 $("sound").onclick = () => {
@@ -1027,6 +1061,10 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.repeat) return;
   const actions = {
+    q: openCookbook,
+    z: () => mealAction(17),
+    1: () => mealAction(18),
+    2: () => mealAction(19),
     h: () => act(1),
     e: () => act(2),
     f: () => act(9),
