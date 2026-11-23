@@ -153,6 +153,8 @@ bool game_action(Game *g, Action action) {
         return false;
     if (action >= ACT_COOKBOOK && action <= ACT_EXPERIMENT)
         return kitchen_action(g, action);
+    if (action >= ACT_CABIN_MAP && action <= ACT_BALCONY_GUIDE)
+        return cabin_map_action(g, action);
     switch (action) {
     case ACT_CABIN:
         if (c->inside)
@@ -214,6 +216,7 @@ bool game_action(Game *g, Action action) {
         g->seated = false;
         g->cookbook_open = false;
         g->experiment.open = false;
+        g->cabin_map_open = false;
         cabin_home(g);
         g->exposed = false;
         return true;
@@ -323,7 +326,7 @@ void game_tick(Game *g, float dt, float f, float r) {
     if (footing_recover(g, dt))
         return;
     float n = hypotf(f, r);
-    if (g->seated || g->cookbook_open || n < .001f)
+    if (g->seated || g->cookbook_open || g->cabin_map_open || n < .001f)
         return;
     float speed = g->rules->pace * dt / fmaxf(1, n);
     if (g->cabin.inside)

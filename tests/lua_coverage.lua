@@ -77,8 +77,12 @@ for _,place in ipairs(places) do
   end
 end
 assert(not pcall(build_visitor,"missing",0,function() end))
+load("cabin-rooms")
+record(cabin_plaque)
+for _,room in pairs(cabin_room_furniture) do record(room) end
 load("cabin")
 record(build_room)
+assert(#cabin_layouts==24 and cabin_layouts[14].width*2==30 and cabin_layouts[24].depth*2==50)
 local function shapes(i,doors,blinds,panes,omit,skin)
   local l=cabin_layouts[i+1]
   local n,lights,glass,water,ink=0,0,0,0,0
@@ -97,11 +101,15 @@ local function shapes(i,doors,blinds,panes,omit,skin)
       if math.abs(dx*cs+dz*sn)<w/2 and math.abs(dz*cs-dx*sn)<d/2 and math.abs(y-1.65)<h/2 then blocked[k]=true end
     end
   end,skin)
-  assert(n>140 and glass==8 and (water==1)==(i==1)); if i==0 then assert(lights==2) end
+  assert(n>140 and glass==(i==19 and 18 or 8))
+  assert(water==(i==1 and 1 or i==16 and 10 or 0))
+  if i==0 then assert(lights==2) end
   return blocked,ink,n
 end
+local room_shapes={}
 for i=0,#cabin_layouts-1 do
   local closed,ink,count=shapes(i,0,0,0,-1)
+  assert(not room_shapes[ink]); room_shapes[ink]=true
   local opened=shapes(i,15,0,0,0)
   for wall=1,3 do assert(closed[wall] and not opened[wall]) end
   if cabin_layouts[i+1].balcony then assert(closed[4] and not opened[4]) end

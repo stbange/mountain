@@ -35,6 +35,27 @@ unsigned cabin_doors(const Game *g, uint32_t id) {
         id ? (cabin_room(&g->book, r->parent)->doors & (1u << r->incoming)) != 0 : g->cabin.open;
     return r->doors | (unsigned)front;
 }
+uint32_t cabin_link(const RoomBook *b, uint32_t id, Wall wall) {
+    const Room *r = cabin_room(b, id);
+    if (wall == FRONT)
+        return id ? r->parent : CABIN_NO_ROOM;
+    if (wall == REAR || wall == RIGHT_WALL) {
+        uint32_t child = r->child[wall - REAR];
+        if (child)
+            return child;
+    }
+    return CABIN_NO_ROOM;
+}
+const char *cabin_door_name(const Game *g, uint32_t id, Wall wall) {
+    uint32_t link = cabin_link(&g->book, id, wall);
+    if (link != CABIN_NO_ROOM)
+        return g->rules->layout[cabin_room(&g->book, link)->kind].name;
+    if (!id && wall <= RIGHT_WALL)
+        return wall == FRONT ? "Trail" : g->rules->layout[wall].name;
+    if (wall == LEFT_WALL && g->rules->layout[cabin_room(&g->book, id)->kind].balcony)
+        return "Balcony";
+    return "";
+}
 static bool append_room(RoomBook *b, uint32_t parent, Wall side, int layouts) {
     if (b->count == b->capacity) {
         size_t cap = b->capacity ? (size_t)b->capacity * 2 : 16;
@@ -48,10 +69,25 @@ static bool append_room(RoomBook *b, uint32_t parent, Wall side, int layouts) {
     }
     Room *from = edit_room(b, parent);
     uint32_t key = hash32(from->key ^ (side == REAR ? 0x9e3779b9u : 0x85ebca6bu));
-    unsigned kind = parent ? 1 + key % (layouts - 1) : (unsigned)side;
+    /* Number the shallow rooms by doorway path, independent of exploration order.
+       Beyond the named plan, the same path continues into repeatable new rooms. */
+    unsigned branch = parent ? from->address : 1;
+    unsigned address = 2 * branch + (side == RIGHT_WALL);
+    if (address > CABIN_LAYOUTS || !branch)
+        address = 0;
+    unsigned kind;
+    if (address && address <= (unsigned)layouts)
+        kind = address - 1;
+    else {
+        kind = 1 + key % (layouts - 2);
+        if (kind >= from->kind)
+            kind++;
+    }
     Room next = {.parent = parent,
                  .incoming = side,
                  .key = key,
+                 .depth = from->depth + 1,
+                 .address = address,
                  .kind = kind,
                  .turn = (from->turn + (side == RIGHT_WALL)) % 4};
     b->rooms[b->count++] = next;
@@ -85,6 +121,65 @@ static Handle handle(const Game *g) {
     return h;
 }
 int cabin_window(const Game *g) { return g->cabin.inside ? handle(g).window : -1; }
+int cabin_near_door(const Game *g) {
+    if (!g->cabin.inside || g->seated)
+        return -1;
+    Handle h = handle(g);
+    return h.at_door ? (int)h.wall : -1;
+}
+bool cabin_on_balcony(const Game *g) {
+    if (!g->cabin.inside || !cabin_layout(g)->balcony)
+        return false;
+    Cabin frame = cabin_frame(g);
+    return cabin_local(&frame, g->x, g->z).x < -cabin_layout(g)->width;
+}
+int cabin_balcony_step(const Game *g) {
+    if (!g->cabin.inside || cabin_on_balcony(g))
+        return -1;
+    if (cabin_layout(g)->balcony)
+        return LEFT_WALL;
+    return g->cabin.room ? FRONT : RIGHT_WALL;
+}
+float cabin_door_bearing(const Game *g, Wall wall) {
+    Cabin frame = cabin_frame(g);
+    const Layout *l = cabin_layout(g);
+    Vec p = cabin_local(&frame, g->x, g->z);
+    float x = wall == RIGHT_WALL ? l->width : wall == LEFT_WALL ? -l->width : 0;
+    float z = wall == FRONT ? l->depth : wall == REAR ? -l->depth : 0;
+    return atan2f(x - p.x, p.z - z);
+}
+bool cabin_map_action(Game *g, Action action) {
+    if (!g->cabin.inside)
+        return false;
+    switch (action) {
+    case ACT_CABIN_MAP:
+        g->cabin_map_open = !g->cabin_map_open;
+        g->map_room = g->cabin.room;
+        g->cookbook_open = g->experiment.open = false;
+        return true;
+    case ACT_BALCONY_GUIDE:
+        g->balcony_guide = !g->balcony_guide;
+        return true;
+    case ACT_MAP_HEARTH:
+        if (!g->cabin_map_open)
+            return false;
+        g->map_room = 0;
+        return true;
+    case ACT_MAP_FRONT:
+    case ACT_MAP_REAR:
+    case ACT_MAP_RIGHT: {
+        if (!g->cabin_map_open)
+            return false;
+        uint32_t link = cabin_link(&g->book, g->map_room, (Wall)(action - ACT_MAP_FRONT));
+        if (link == CABIN_NO_ROOM)
+            return false;
+        g->map_room = link;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
 Interaction cabin_near(const Game *g) {
     Handle h = handle(g);
     const Room *r = cabin_room(&g->book, g->cabin.room);
@@ -119,6 +214,7 @@ static void cross(Game *g, Wall side) {
     Vec p = cabin_local(&frame, g->x, g->z);
     if (side == FRONT && !c->room) {
         c->inside = false;
+        g->cabin_map_open = false;
         put(g, frame, 0, g->rules->layout[0].depth + 1.5f);
         return;
     }
@@ -216,20 +312,19 @@ void cabin_walk(Game *g, Vec target) {
     }
     put(g, frame, p.x, p.z);
 }
-/* Fixed-width hex records are portable across native endianness and browser localStorage.
-   Links and orientations are rebuilt from validated, topologically ordered parent edges. */
+/* CAB2 expands the layout ID to a full byte. Depth and links are derived from parent edges. */
 char *cabin_encode(const RoomBook *b) {
     size_t records = (size_t)b->count + 1;
-    if (!records || records > (SIZE_MAX - 6) / 15)
+    if (!records || records > (SIZE_MAX - 6) / 16)
         return NULL;
-    char *out = malloc(6 + records * 15);
+    char *out = malloc(6 + records * 16);
     if (!out)
         return NULL;
     unsigned watch = b->weather | (b->predators << 2) | (b->giants << 3);
-    snprintf(out, 6, "CAB1%x", watch);
+    snprintf(out, 6, "CAB2%x", watch);
     for (size_t i = 0; i < records; i++) {
         const Room *r = cabin_room(b, (uint32_t)i);
-        snprintf(out + 5 + 15 * i, 16, "%08x%x%x%x%02x%02x", (unsigned)r->parent, r->incoming,
+        snprintf(out + 5 + 16 * i, 17, "%08x%x%02x%x%02x%02x", (unsigned)r->parent, r->incoming,
                  r->kind, r->doors, r->blinds, r->panes);
     }
     return out;
@@ -243,19 +338,22 @@ static unsigned hex(const char *p, unsigned n) {
     return value;
 }
 bool cabin_decode(RoomBook *b, const char *text, int layouts) {
-    if (!text || strncmp(text, "CAB1", 4))
+    if (!text || strncmp(text, "CAB", 3) || (text[3] != '1' && text[3] != '2'))
         return false;
+    unsigned kind_digits = text[3] - '0';
+    size_t stride = 14 + kind_digits;
     size_t n = strlen(text);
-    if (n < 20 || (n - 5) % 15 || (n - 5) / 15 > UINT32_MAX ||
+    if (n < 5 + stride || (n - 5) % stride || (n - 5) / stride > UINT32_MAX ||
         strspn(text + 4, "0123456789abcdef") != n - 4)
         return false;
     unsigned watch = hex(text + 4, 1);
     RoomBook next = {
         .weather = watch & 3, .predators = (watch & 4) != 0, .giants = (watch & 8) != 0};
-    for (size_t i = 0; i < (n - 5) / 15; i++) {
-        const char *p = text + 5 + i * 15;
-        unsigned parent = hex(p, 8), incoming = hex(p + 8, 1), kind = hex(p + 9, 1),
-                 doors = hex(p + 10, 1);
+    for (size_t i = 0; i < (n - 5) / stride; i++) {
+        const char *p = text + 5 + i * stride;
+        const char *flags = p + 9 + kind_digits;
+        unsigned parent = hex(p, 8), incoming = hex(p + 8, 1), kind = hex(p + 9, kind_digits),
+                 doors = hex(flags, 1);
         if (doors & 1 || (!i && (parent || incoming || kind)) ||
             (i && (parent >= i || incoming < REAR || incoming > RIGHT_WALL || !kind ||
                    kind >= (unsigned)layouts || cabin_room(&next, parent)->child[incoming - REAR] ||
@@ -264,8 +362,8 @@ bool cabin_decode(RoomBook *b, const char *text, int layouts) {
         Room *r = edit_room(&next, (uint32_t)i);
         r->kind = kind;
         r->doors = doors;
-        r->blinds = hex(p + 11, 2);
-        r->panes = hex(p + 13, 2);
+        r->blinds = hex(flags + 1, 2);
+        r->panes = hex(flags + 3, 2);
     }
     for (uint32_t i = 0; i <= next.count; i++) {
         const Room *r = cabin_room(&next, i);

@@ -397,6 +397,14 @@ def test_touch(browser, url):
     assert v(page, 13) == 10 and v(page, 42)
     page.tap("#cabin")
     assert v(page, 13) == 3
+    page.get_by_role("button", name="Cabin map", exact=True).tap()
+    assert page.locator("#sheet-title").text_content() == "Cabin map"
+    assert "winter garden" in page.locator(".balcony-direction").text_content()
+    assert page.locator("dialog").evaluate(
+        "(panel)=>panel.scrollWidth<=panel.clientWidth+1"
+    )
+    page.get_by_role("button", name="Follow balcony route").tap()
+    assert page.locator("#cabin-way").is_visible()
     page.set_viewport_size({"width": 800, "height": 390})
     assert page.locator("#camera").is_visible()
     assert page.evaluate("document.documentElement.scrollWidth===window.innerWidth")
@@ -429,8 +437,19 @@ def test_cabin(browser, url):
     bearing = v(page, 2)
     page.keyboard.press("r")
     assert v(page, 11) and v(page, 38) == 1
+    page.keyboard.press("b")
+    assert page.locator("#sheet-title").text_content() == "Cabin map"
+    assert "You are here" in page.locator(".cabin-plan-head").text_content()
+    assert "The winter garden" in page.locator(".balcony-direction").text_content()
+    assert (
+        "Unopened" in page.locator(".balcony-direction").text_content()
+        and v(page, 38) == 1
+    )
+    page.get_by_role("button", name="Follow balcony route").click()
+    assert page.locator("#cabin-way").is_visible() and v(page, 62)
     room_walk(page, bearing, 3.6, -2.65)
     assert v(page, 13) == 8
+    assert "winter garden" in page.locator("#use").inner_text()
     before = frame(page)
     page.click("#use")
     preview = frame(page)
@@ -439,12 +458,24 @@ def test_cabin(browser, url):
     )
     page.click("#use")
     assert page.locator("h1").text_content() == "The winter garden"
+    assert page.locator("#cabin-destination").text_content() == "Balcony door"
     turn = bearing + 1.57079632679
     room_walk(page, turn, -11.45, -8.15)
     assert v(page, 13) == 11
     page.click("#use")
     page.click("#use")
     assert v(page, 11) and v(page, 13) == 12
+    page.click("#map")
+    assert "You are on the balcony" in page.locator(".cabin-plan-head").text_content()
+    assert page.locator(".cabin-door-card").filter(has_text="Balcony").count() == 1
+    page.locator(".cabin-door-card").get_by_text("Hearth Room", exact=True).click()
+    assert page.locator(".cabin-plan-head h3").text_content() == "Hearth Room" and v(
+        page, 50
+    )
+    page.get_by_role("button", name="You are here", exact=True).click()
+    assert "You are on the balcony" in page.locator(".cabin-plan-head").text_content()
+    page.click("#close")
+    assert not page.locator("#cabin-way").is_visible()
     page.click("#conditions")
     page.get_by_role("button", name="Heavy fog", exact=True).click()
     page.get_by_label("Watch a wolf pack").check()
@@ -481,6 +512,22 @@ def test_cabin(browser, url):
     page.evaluate("()=>{Module._mountain_pause(1);Module._mountain_visit(7);refresh()}")
     bearing = v(page, 2)
     page.keyboard.press("r")
+    page.click("#map")
+    assert page.locator(".cabin-index h3").text_content() == "2 mapped rooms"
+    page.get_by_role("searchbox", name="Find a mapped room").fill("winter")
+    page.locator(".cabin-index-room").get_by_text(
+        "The winter garden", exact=True
+    ).click()
+    assert page.locator(".cabin-plan-head h3").text_content() == "The winter garden"
+    assert "24 × 18 × 7.1 m" in page.locator(".cabin-plan-head").text_content()
+    assert (
+        "Closed"
+        in page.locator(".cabin-door-card")
+        .filter(has_text="Hearth Room")
+        .text_content()
+    )
+    page.click("#close")
+    assert v(page, 12) == 0 and not v(page, 50)
     room_walk(page, bearing, 3.6, -2.65)
     assert v(page, 13) == 8
     page.click("#use")
@@ -499,9 +546,36 @@ def test_cabin(browser, url):
     page.get_by_label("Watch a runaway survey rover").uncheck()
     page.get_by_label("Watch a crater-wall landslide").uncheck()
     assert not v(page, 39) and not v(page, 40) and not v(page, 41)
+    page.click("#close")
+    page.keyboard.press("r")
+    visited = set()
+    for _ in range(9):
+        room = int(v(page, 12))
+        x, z, yaw, depth = page.evaluate(
+            """(room) => [
+          Module._mountain_cabin_pose(0), Module._mountain_cabin_pose(1),
+          val(2)-Module._mountain_cabin_pose(2), Module._mountain_room(room,3)
+        ]""",
+            room,
+        )
+        room_walk(page, yaw, -x, -depth / 2 + 0.85 - z)
+        assert v(page, 13) == 8
+        page.click("#use")
+        page.click("#use")
+        visited.add(page.locator("#location").text_content())
+    assert "The cedar library" in visited and "The print room" in visited
+    page.click("#map")
+    assert page.locator(".cabin-index h3").text_content() == "11 mapped rooms"
+    page.locator(".cabin-index-pages").get_by_role("button", name="Next").click()
+    assert "2 / 2" in page.locator(".cabin-index-pages").text_content()
+    page.get_by_role("searchbox", name="Find a mapped room").fill("cedar library")
+    page.locator(".cabin-index-room").get_by_text(
+        "The cedar library", exact=True
+    ).first.click()
+    assert "18 × 26 × 7.6 m" in page.locator(".cabin-plan-head").text_content()
     ctx.close()
     print(
-        "Cabin doors, room previews, balcony, panes, blinds and cross-world save reload passed.",
+        "Cabin doors, room previews, balcony route, map browsing, panes, blinds and cross-world save reload passed.",
         flush=True,
     )
 
@@ -726,6 +800,10 @@ def test_headset(browser, url):
         )
         page.wait_for_function("testHeadset.frames>window.eyeCount+1")
 
+    face(0, 3)
+    assert v(page, 61) and v(page, 63) == 0 and v(page, 38) == 1
+    page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
+    assert not v(page, 61) and v(page, 62)
     face(1, 3)
     assert v(page, 51)
     face(1, 4)
@@ -735,6 +813,13 @@ def test_headset(browser, url):
     assert not v(page, 51) and v(page, 50)
     page.evaluate("testHeadset.session.dispatchEvent(new Event('select'))")
     assert v(page, 49)
+    face(0, 3)
+    assert v(page, 61) and v(page, 63) == v(page, 12)
+    page.evaluate("testHeadset.session.inputSources[1].gamepad.axes=[0,0,0,.85]")
+    page.wait_for_function("Module._mountain_value(63)===0")
+    page.evaluate("testHeadset.session.inputSources[1].gamepad.axes=[0,0,0,0]")
+    face(0, 3)
+    assert not v(page, 61) and v(page, 49)
     page.evaluate(
         """()=>{const e=new Event('squeeze');e.inputSource={handedness:'left'};testHeadset.session.dispatchEvent(e)}"""
     )

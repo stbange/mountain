@@ -955,13 +955,105 @@ static void cookbook_hud(Display *d, const Game *g, int w, int h, bool xr) {
     finish_hud(d, m);
 }
 
+static void map_rectangle(Mesh *m, float x, float y, float dx, float dy, int w, int h, Color tone) {
+    quad(m, pixel(x, y, w, h), pixel(x + dx, y, w, h), pixel(x + dx, y + dy, w, h),
+         pixel(x, y + dy, w, h), tone, 0);
+}
+static void cabin_map_hud(Display *d, const Game *g, int w, int h, bool xr) {
+    Mesh *m = &d->scratch;
+    mesh_clear(m);
+    const uint32_t id = g->map_room;
+    const Layout *l = &g->rules->layout[cabin_room(&g->book, id)->kind];
+    const Color ink = rgb(0x263d35), cream = rgb(0xf5ead2), gold = rgb(0xe8bc80);
+    int margin = xr ? 65 : 8, top = xr ? 73 : 14;
+    int panel_w = w - 2 * margin, panel_h = h - top - (xr ? 60 : 13);
+    if (panel_w < 140 || panel_h < 120)
+        return;
+    map_rectangle(m, margin, top, panel_w, panel_h, w, h, ink);
+    char text[100];
+    snprintf(text, sizeof text, "Cabin map / %u rooms", g->book.count + 1);
+    label(m, text, margin + 10, top + 9, w, h, gold);
+    snprintf(text, sizeof text, "%s%s", l->name, id == g->cabin.room ? " / You are here" : "");
+    note_lines(m, text, margin + 4, top + 21, (panel_w - 18) / 6 < 83 ? (panel_w - 18) / 6 : 83, w,
+               h, ink, cream);
+
+    float deck = l->balcony ? 3.2f : 0;
+    float scale =
+        fminf((panel_w * .45f - 12) / (2 * l->width + deck), (panel_h - 74) / (2 * l->depth));
+    float cx = margin + panel_w * .23f + deck * scale * .5f, cy = top + (panel_h + 13) * .5f;
+    float hw = l->width * scale, hd = l->depth * scale;
+    int route = id == g->cabin.room ? cabin_balcony_step(g) : -1;
+    unsigned doors = cabin_doors(g, id);
+    if (l->balcony)
+        map_rectangle(m, cx - hw - deck * scale, cy - hd * .6f, deck * scale, hd * 1.2f, w, h,
+                      rgb(0x9eb5a0));
+    map_rectangle(m, cx - hw, cy - hd, hw * 2, hd * 2, w, h, cream);
+    const float dx[] = {0, 0, hw, -hw}, dy[] = {hd, -hd, 0, 0};
+    for (int side = 0; side < (l->balcony ? 4 : 3); side++) {
+        float span = fmaxf(6, 1.75f * scale);
+        float width = side <= REAR ? span : 4, height = side <= REAR ? 4 : span;
+        Color tone = route == side ? gold : doors & (1 << side) ? rgb(0x668d7a) : rgb(0x977557);
+        map_rectangle(m, cx + dx[side] - width / 2, cy + dy[side] - height / 2, width, height, w, h,
+                      tone);
+    }
+    if (id == g->cabin.room) {
+        Cabin frame = cabin_frame(g);
+        Vec local = cabin_local(&frame, g->x, g->z);
+        float x = cx + local.x * scale, y = cy + local.z * scale;
+        float yaw = g->yaw - frame.angle, s = sinf(yaw), c = cosf(yaw);
+        Color mark = rgb(0x984931);
+        tri(m, pixel(x + s * 8, y - c * 8, w, h), pixel(x - s * 4 + c * 5, y + c * 4 + s * 5, w, h),
+            pixel(x - s * 4 - c * 5, y + c * 4 - s * 5, w, h), mark, mark, mark, 0);
+    }
+    const char *sides[] = {"Entry", "Far", "Right", "Deck"};
+    int guide_x = margin + (int)(panel_w * .47f);
+    int capacity = (margin + panel_w - guide_x - 12) / 6;
+    for (int side = 0; side < (l->balcony ? 4 : 3); side++) {
+        const char *name = cabin_door_name(g, id, (Wall)side);
+        bool open = (doors & (1 << side)) != 0;
+        snprintf(text, sizeof text, "%s %s %s", sides[side], open ? "open" : "closed",
+                 *name ? name : "Unexplored");
+        note_lines(m, text, guide_x, top + 41 + side * 25, capacity, w, h, ink,
+                   route == side ? gold : cream);
+    }
+    note_lines(m,
+               xr ? "Right stick browse / Select balcony guide / Left stick close"
+                  : "Arrows browse / Home hearth / G balcony guide / B close",
+               margin + 4, top + panel_h - 25, (panel_w - 18) / 6, w, h, ink, cream);
+    finish_hud(d, m);
+}
+static bool balcony_hint(const Game *g, char *text, size_t size, bool xr) {
+    int side = cabin_balcony_step(g);
+    if (side < 0 || (g->cabin.room && !g->balcony_guide))
+        return false;
+    const char *name = cabin_door_name(g, g->cabin.room, (Wall)side);
+    if (xr) {
+        snprintf(text, size, "Balcony %s%s / Left stick click for map",
+                 side == LEFT_WALL ? "" : "via ", side == LEFT_WALL ? "door" : name);
+        return true;
+    }
+    float heading = g->yaw - cabin_frame(g).angle;
+    float offset = remainderf(cabin_door_bearing(g, (Wall)side) - heading, 2 * PI);
+    const char *turn = fabsf(offset) < .46f    ? "ahead"
+                       : fabsf(offset) > 2.65f ? "behind"
+                       : offset > 0            ? "turn right"
+                                               : "turn left";
+    snprintf(text, size, "Balcony / %s / %s", side == LEFT_WALL ? "deck door" : name, turn);
+    return true;
+}
+
 static void headset_note(Display *d, const Game *g) {
+    if (g->cabin_map_open) {
+        cabin_map_hud(d, g, 500, 400, true);
+        return;
+    }
     if (g->cookbook_open) {
         cookbook_hud(d, g, 500, 400, true);
         return;
     }
     Interaction nearby = game_near(g);
     const char *note = NULL;
+    char direction[100];
     if (g->fall_time > 0 || g->exposed)
         note = "Exposed edge - watch your footing";
     else if (g->warning_timer > 0)
@@ -978,20 +1070,38 @@ static void headset_note(Display *d, const Game *g) {
         note = "Select to sit at the balcony table";
     else if (g->seated)
         note = "Select stand / right buttons sip or eat / left grip photo";
-    else if (nearby == NEAR_ENTER || nearby == NEAR_EXIT)
+    else if (nearby == NEAR_BALCONY_DOOR)
+        note = "Select to open balcony door";
+    else if (nearby == NEAR_BALCONY)
+        note = "Select to cross balcony threshold";
+    else if (nearby == NEAR_ROOM_DOOR || nearby == NEAR_NEXT || nearby == NEAR_BACK) {
+        int wall = cabin_near_door(g);
+        const char *room = wall < 0 ? "" : cabin_door_name(g, g->cabin.room, (Wall)wall);
+        snprintf(direction, sizeof direction, "Select %s %s",
+                 nearby == NEAR_ROOM_DOOR ? "opens" : "enters", *room ? room : "room door");
+        note = direction;
+    } else if (nearby == NEAR_ENTER || nearby == NEAR_EXIT)
         note = "Select to cross; left grip closes door";
     else if (nearby == NEAR_READ)
         note = "Select to read the field sign";
     else if (nearby == NEAR_TREASURE)
         note = "Select to discover the treasure";
+    else if (g->cabin.inside)
+        note = "Click left stick for the cabin map";
     if (!note || !*note)
         return;
     Mesh *m = &d->scratch;
     mesh_clear(m);
     note_lines(m, note, 126, 279, 38, 500, 400, rgb(0x233a31), rgb(0xf0edda));
+    if (balcony_hint(g, direction, sizeof direction, true))
+        note_lines(m, direction, 126, 316, 38, 500, 400, rgb(0x233a31), rgb(0xe8bc80));
     finish_hud(d, m);
 }
 static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool help) {
+    if (g->cabin_map_open) {
+        cabin_map_hud(d, g, w, h, false);
+        return;
+    }
     if (g->cookbook_open) {
         cookbook_hud(d, g, w, h, false);
         return;
@@ -1006,7 +1116,8 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
     if (g->cabin.inside) {
         const Shelter *shelter = destination_shelter(g);
         snprintf(title, sizeof title, "%s / %s", shelter->name, cabin_layout(g)->name);
-        snprintf(line, sizeof line, "%02d:%02d   %s", time / 60, time % 60, lookout_event(g)->name);
+        snprintf(line, sizeof line, "%02d:%02d   %s   B MAP", time / 60, time % 60,
+                 lookout_event(g)->name);
     }
     const char *actions[] = {"WASD HIKE  /  Q COOKBOOK  /  H SHELTER  /  F1 GUIDE",
                              "E  OPEN DOOR",
@@ -1032,10 +1143,20 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
          ink, 0);
     label(m, title, 12, 10, w, h, cream);
     label(m, line, 12, 21, w, h, cream);
+    Interaction nearby = game_near(g);
     const char *a = g->fall_time > 0       ? "SLIPPING"
                     : g->warning_timer > 0 ? "BACK ON SAFE FOOTING"
                     : g->exposed           ? "EXPOSED EDGE - WATCH YOUR FOOTING"
-                                           : actions[game_near(g)];
+                                           : actions[nearby];
+    if (nearby == NEAR_ROOM_DOOR || nearby == NEAR_NEXT || nearby == NEAR_BACK) {
+        int wall = cabin_near_door(g);
+        const char *name = wall < 0 ? "" : cabin_door_name(g, g->cabin.room, (Wall)wall);
+        if (*name) {
+            snprintf(line, sizeof line, "E  %s %s",
+                     nearby == NEAR_ROOM_DOOR ? "Open door to" : "Enter", name);
+            a = line;
+        }
+    }
     quad(m, pixel(6, h - 20, w, h), pixel(18 + strlen(a) * 6, h - 20, w, h),
          pixel(18 + strlen(a) * 6, h - 6, w, h), pixel(6, h - 6, w, h), ink, 0);
     label(m, a, 12, h - 17, w, h, cream);
@@ -1049,7 +1170,7 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
                                "K phenomenon   L / X local sightings",
                                "T: time   Y: season   U: weather",
                                "I: cycle seasons   O: weather changes",
-                               "N: new trail   B: Taggart Lake",
+                               "N new trail   B map indoors",
                                "[ / ]: previous / next destination",
                                "M: sound   P: photo",
                                "F1: close guide   Esc: release mouse"};
@@ -1078,6 +1199,8 @@ static void native_hud(Display *d, Script *s, const Game *g, int w, int h, bool 
             width = 105;
         note_lines(m, note, 6, start, width, w, h, ink, cream);
     }
+    if (balcony_hint(g, title, sizeof title, false))
+        note_lines(m, title, 6, h - 44, (w - 24) / 6, w, h, ink, rgb(0xe8bc80));
     finish_hud(d, m);
 }
 static bool target(Display *d, int w, int h) {

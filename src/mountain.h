@@ -161,7 +161,8 @@ typedef struct {
     bool forked, deciduous;
     float first_bough, bough_variation, width, droop, foliage;
 } TreeShape;
-#define CABIN_LAYOUTS 16
+#define CABIN_LAYOUTS 64
+#define CABIN_NO_ROOM UINT32_MAX
 typedef struct {
     char name[48];
     float width, depth, height; /* Half extents in X/Z, full wall height. */
@@ -170,8 +171,8 @@ typedef struct {
 typedef enum { FRONT, REAR, RIGHT_WALL, LEFT_WALL } Wall;
 
 typedef struct {
-    uint32_t parent, child[2], key;
-    unsigned char incoming, turn, kind, doors, blinds, panes;
+    uint32_t parent, child[2], key, depth;
+    unsigned char incoming, turn, kind, doors, blinds, panes, address;
 } Room;
 typedef struct {
     Room hearth, *rooms;
@@ -224,6 +225,8 @@ typedef struct {
     RoomBook book;
     Pantry pantry;
     bool seated, cookbook_open;
+    bool cabin_map_open, balcony_guide;
+    uint32_t map_room;
     int selection;
     struct {
         bool open;
@@ -269,7 +272,13 @@ typedef enum {
     ACT_GROW,
     ACT_REST,
     ACT_SETTING,
-    ACT_EXPERIMENT
+    ACT_EXPERIMENT,
+    ACT_CABIN_MAP,
+    ACT_MAP_FRONT,
+    ACT_MAP_REAR,
+    ACT_MAP_RIGHT,
+    ACT_MAP_HEARTH,
+    ACT_BALCONY_GUIDE
 } Action;
 typedef enum {
     NEAR_NONE,
@@ -368,13 +377,19 @@ bool event_thunders(const Game *g);
 const Layout *cabin_layout(const Game *g);
 Cabin cabin_frame(const Game *g);
 unsigned cabin_doors(const Game *g, uint32_t id);
+uint32_t cabin_link(const RoomBook *book, uint32_t id, Wall wall);
+const char *cabin_door_name(const Game *g, uint32_t id, Wall wall);
+int cabin_near_door(const Game *g);
+int cabin_balcony_step(const Game *g);
+float cabin_door_bearing(const Game *g, Wall wall);
+bool cabin_map_action(Game *g, Action action);
 int cabin_window(const Game *g);
 Interaction cabin_near(const Game *g);
 bool cabin_use(Game *g, Action action);
 void cabin_walk(Game *g, Vec target);
 void cabin_home(Game *g);
 bool cabin_to_balcony(Game *g);
-bool kitchen_deck(const Game *g);
+bool cabin_on_balcony(const Game *g);
 int forage_patches(const Game *g, ForagePatch *out, int radius);
 int forage_near(const Game *g, ForagePatch *out);
 bool kitchen_gather(Game *g);

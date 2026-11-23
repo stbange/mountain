@@ -37,6 +37,27 @@ Every room SHALL have doors on at least three walls. The front of the Hearth Roo
 - **WHEN** the hiker uses the hearth shortcut from a distant room, a balcony or the trail
 - **THEN** the hiker arrives inside the entrance room with discoveries intact
 
+### Requirement: A varied and stable floor plan
+The cabin SHALL have at least 24 authored room designs at different scales. The opening wings SHALL derive their designs from the doorway path. Further doors SHALL extend both wings on demand. A saved room SHALL retain its design, connections and fixtures when the room catalogue expands. Existing CAB1 saves SHALL remain readable.
+
+#### Scenario: Explore the branches in a different order
+- **WHEN** two new cabins reach the same doorway path after opening different branches first
+- **THEN** that path leads to the same room design and parent doorway
+
+### Requirement: A map of discovered rooms
+Inside the shelter the hiker SHALL be able to open a map on desktop, touch and WebXR. A map SHALL show the current room, position, heading, doors and balcony. The hiker SHALL be able to inspect discovered rooms through their connecting doors. Viewing a map SHALL leave unopened doors and the room count as they were.
+
+#### Scenario: Inspect and revisit a connected room
+- **WHEN** a hiker opens a door, inspects its room on the map and later restarts
+- **THEN** its outline, connections, balcony and last door state can be viewed on the map again
+
+### Requirement: Directions to the balcony
+The Hearth Room SHALL mark its Winter Garden door as a balcony route. Balcony doors SHALL have readable signs. A hiker following the map's balcony route SHALL see guidance to an accessible balcony through ordinary doors.
+
+#### Scenario: Find the balcony on foot
+- **WHEN** the hiker chooses the balcony route in the Hearth Room
+- **THEN** the guide leads to the Winter Garden and then to its railed balcony without requiring a meal
+
 ### Requirement: Habitable rooms and windows
 Each window SHALL have an independently operable glass casement and blind. The cabin SHALL contain rooms of different dimensions, including a swimming hall, a roofed garden and walkable, railed balconies. Every window SHALL look out on the current destination.
 

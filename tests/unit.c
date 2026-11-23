@@ -261,6 +261,95 @@ static void hiking(const Rules *r) {
     CHECK(game_action(&g, ACT_HOME) && g.cabin.inside && g.book.count == 1003);
     cabin_forget(&g.book);
 }
+static void cabin_floor_plan(const Rules *rules) {
+    CHECK(rules->layouts == 24);
+    CHECK(rules->layout[23].depth == 25 && rules->layout[13].width == 15);
+    Game g;
+    uint32_t signatures[CABIN_LAYOUTS + 1] = {0};
+    for (int order = 0; order < 2; order++) {
+        game_init(&g, rules, rules->seed);
+        CHECK(cabin_near_door(&g) == -1 && cabin_balcony_step(&g) == -1);
+        CHECK(!game_action(&g, ACT_CABIN_MAP) && game_action(&g, ACT_HOME));
+        CHECK(!strcmp(cabin_door_name(&g, 0, FRONT), "Trail"));
+        CHECK(!strcmp(cabin_door_name(&g, 0, RIGHT_WALL), "The winter garden"));
+        CHECK(!*cabin_door_name(&g, 0, LEFT_WALL));
+        CHECK(cabin_balcony_step(&g) == RIGHT_WALL);
+        CHECK(isfinite(cabin_door_bearing(&g, RIGHT_WALL)));
+        CHECK(!game_action(&g, ACT_MAP_HEARTH) && !game_action(&g, ACT_MAP_FRONT));
+        CHECK(game_action(&g, ACT_CABIN_MAP) && g.cabin_map_open && !g.cookbook_open);
+        CHECK(game_action(&g, ACT_MAP_HEARTH) && !game_action(&g, ACT_MAP_RIGHT) && !g.book.count);
+        Vec before = eye(&g);
+        game_tick(&g, .13f, 1, 1);
+        CLOSE(eye(&g).x, before.x);
+        CLOSE(eye(&g).z, before.z);
+        CHECK(game_action(&g, ACT_CABIN_MAP) && !g.cabin_map_open);
+        uint32_t ids[CABIN_LAYOUTS + 1] = {0};
+        for (int parent = 1; parent * 2 <= rules->layouts; parent++) {
+            g.cabin.room = ids[parent];
+            for (int door = 0; door < 2; door++) {
+                int right = door ^ order, address = 2 * parent + right;
+                if (address > rules->layouts)
+                    continue;
+                const Layout *l = cabin_layout(&g);
+                Wall side = right ? RIGHT_WALL : REAR;
+                position(&g, right ? l->width - .6f : 0, right ? 0 : -l->depth + .6f);
+                CHECK(cabin_near_door(&g) == (int)side && game_near(&g) == NEAR_ROOM_DOOR);
+                CHECK(cabin_link(&g.book, ids[parent], side) == CABIN_NO_ROOM);
+                CHECK(game_action(&g, ACT_USE) && g.cabin.room == ids[parent]);
+                ids[address] = cabin_link(&g.book, ids[parent], side);
+                CHECK(ids[address] && ids[address] <= g.book.count);
+                const Room *r = cabin_room(&g.book, ids[address]);
+                CHECK(r->address == address && r->kind == address - 1 && r->incoming == side &&
+                      r->parent == ids[parent] &&
+                      r->depth == cabin_room(&g.book, ids[parent])->depth + 1);
+                CHECK(cabin_link(&g.book, ids[address], FRONT) == ids[parent]);
+                CHECK(!strcmp(cabin_door_name(&g, ids[parent], side),
+                              rules->layout[address - 1].name));
+                if (order)
+                    CHECK(signatures[address] == r->key);
+                else
+                    signatures[address] = r->key;
+            }
+        }
+        CHECK((int)g.book.count == rules->layouts - 1);
+        CHECK(game_action(&g, ACT_HOME) && game_action(&g, ACT_CABIN_MAP));
+        CHECK(game_action(&g, ACT_MAP_REAR) && g.map_room == ids[2]);
+        CHECK(game_action(&g, ACT_MAP_RIGHT) && g.map_room == ids[5]);
+        CHECK(game_action(&g, ACT_MAP_FRONT) && g.map_room == ids[2]);
+        CHECK(game_action(&g, ACT_MAP_HEARTH) && !g.map_room && !g.cabin.room);
+        CHECK(game_action(&g, ACT_BALCONY_GUIDE) && g.balcony_guide);
+        CHECK(!cabin_map_action(&g, ACT_TIME) && game_action(&g, ACT_HOME) && !g.cabin_map_open);
+        g.cabin.room = ids[5];
+        CHECK(cabin_balcony_step(&g) == LEFT_WALL);
+        g.cabin.room = ids[4];
+        CHECK(cabin_balcony_step(&g) == FRONT && !*cabin_door_name(&g, g.cabin.room, LEFT_WALL));
+        g.cabin.room = ids[3];
+        position(&g, -cabin_layout(&g)->width - 1, 0);
+        CHECK(cabin_on_balcony(&g) && cabin_balcony_step(&g) == -1);
+        RoomBook roundtrip = {0};
+        char *save = cabin_encode(&g.book);
+        CHECK(save && !strncmp(save, "CAB2", 4) && cabin_decode(&roundtrip, save, rules->layouts));
+        CHECK(roundtrip.count == g.book.count && cabin_room(&roundtrip, ids[24])->kind == 23);
+        CHECK(cabin_room(&roundtrip, ids[24])->parent == ids[12] &&
+              cabin_room(&roundtrip, ids[24])->depth == 4);
+        save[5 + 16 * ids[24] + 9] = 'f';
+        CHECK(!cabin_decode(&roundtrip, save, rules->layouts) && roundtrip.count == g.book.count);
+        free(save);
+        cabin_forget(&roundtrip);
+        cabin_forget(&g.book);
+    }
+    /* A CAB1 save whose old sunroom occupies the new reading-room address. */
+    const char legacy[] = "CAB1d00000000006000000000000228023500000000112000000000002160180c";
+    RoomBook old = {0};
+    CHECK(cabin_decode(&old, legacy, rules->layouts));
+    CHECK(old.count == 3 && old.weather == 1 && old.predators && old.giants);
+    CHECK(cabin_room(&old, 1)->kind == 2 && cabin_room(&old, 1)->blinds == 0x02 &&
+          cabin_room(&old, 1)->panes == 0x35);
+    CHECK(cabin_room(&old, 3)->kind == 6 && cabin_room(&old, 3)->address == 4 &&
+          cabin_room(&old, 3)->panes == 0x0c);
+    cabin_forget(&old);
+}
+
 static void marked_hikes(const Rules *rules, const char *assets) {
     Game g;
     const uint32_t seeds[] = {4812, 291, 3107, 0, UINT32_MAX, rules->survey.seed};
@@ -942,7 +1031,7 @@ static void field_kitchen(Script *s) {
     CHECK(kitchen_select(&g, book->cookies) && game_action(&g, ACT_COOK));
     CHECK(g.pantry.drink == book->coffee && g.pantry.food == book->cookies);
     CHECK(!game_action(&g, ACT_SIP) && !game_action(&g, ACT_BITE));
-    CHECK(game_action(&g, ACT_TRAY) && kitchen_deck(&g) && game_near(&g) == NEAR_CHAIR);
+    CHECK(game_action(&g, ACT_TRAY) && cabin_on_balcony(&g) && game_near(&g) == NEAR_CHAIR);
     CHECK(!g.cookbook_open && g.book.count == 1 && (cabin_doors(&g, 0) & (1 << RIGHT_WALL)));
     CHECK(game_action(&g, ACT_USE) && g.seated && game_near(&g) == NEAR_SEATED);
     Vec seated = eye(&g);
@@ -1248,6 +1337,54 @@ static void kitchen_platform(const char *assets) {
     mountain_close();
 }
 
+static void mapped_cabin_platform(const char *assets) {
+    CHECK(mountain_open(assets, 480, 300));
+    CHECK(mountain_value(64) == 24 && mountain_cabin_pose(3) == -1 && !*mountain_label(22));
+    CHECK(!*mountain_room_name(999) && mountain_room(999, 0) == -1 && !*mountain_room_door(999, 1));
+    CHECK(!*mountain_room_door(0, -1) && !*mountain_room_door(0, 4));
+    CHECK(!*mountain_label(23) && mountain_cabin_pose(0) == 0);
+    int garden = (int)mountain_room(0, 9);
+    int baths = (int)mountain_room(0, 8);
+    CHECK(garden > 0 && baths > 0 && mountain_room(0, 7) == -1 && mountain_room(0, 10) == -1);
+    CHECK(mountain_room(garden, 0) == 2 && mountain_room(garden, 1) == 1);
+    CHECK(mountain_room(garden, 2) == 24 && mountain_room(garden, 3) == 18 &&
+          mountain_room(garden, 4) > 7 && mountain_room(garden, 5) &&
+          mountain_room(garden, 6) >= 0);
+    CHECK(mountain_room(garden, 7) == 0 &&
+          !strcmp(mountain_room_name(garden), "The winter garden"));
+    CHECK(!strcmp(mountain_room_door(0, RIGHT_WALL), mountain_room_name(garden)));
+    event_key(SDLK_R);
+    for (int i = 0; i <= 4; i++)
+        CHECK(isfinite(mountain_cabin_pose(i)));
+    CHECK(mountain_cabin_pose(3) == RIGHT_WALL && strstr(mountain_label(23), "winter garden"));
+    event_key(SDLK_B);
+    CHECK(mountain_value(61) && !mountain_value(63));
+    uint32_t open = display_sample(480, 300);
+    event_key(SDLK_RIGHT);
+    CHECK(mountain_value(63) == garden && !mountain_value(12));
+    CHECK(open != display_sample(480, 300));
+    event_key(SDLK_S);
+    CHECK(!mountain_value(63));
+    event_key(SDLK_W);
+    CHECK(mountain_value(63) == baths);
+    event_key(SDLK_HOME);
+    CHECK(!mountain_value(63));
+    event_key(SDLK_G);
+    CHECK(mountain_value(62));
+    Mat p = perspective(1, 1, .08f, 2400), v = identity();
+    mountain_xr_active(1);
+    mountain_xr_eye(&p, &v, 0, 0, 240, 300);
+    mountain_xr_active(0);
+    CHECK(!mountain_value(61));
+    event_key(SDLK_B);
+    event_key(SDLK_ESCAPE);
+    CHECK(!mountain_value(61));
+    event_key(SDLK_B);
+    event_key(SDLK_R);
+    CHECK(!mountain_value(61) && !mountain_value(12));
+    mountain_close();
+}
+
 static void platform(const char *assets) {
     CHECK(!mountain_open("/missing-mountain-assets", 120, 80));
     CHECK(mountain_open(assets, 240, 150));
@@ -1402,6 +1539,7 @@ static void platform(const char *assets) {
     mountain_close();
     CHECK(mountain_open(assets, 180, 120));
     kitchen_platform(assets);
+    mapped_cabin_platform(assets);
     remove_test_journal();
 }
 int main(int argc, char **argv) {
@@ -1414,6 +1552,7 @@ int main(int argc, char **argv) {
     maths(&s.rules);
     lighting(&s.rules);
     hiking(&s.rules);
+    cabin_floor_plan(&s.rules);
     marked_hikes(&s.rules, argv[1]);
     endless_terrain(&s.rules);
     expeditions(&s);

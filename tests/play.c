@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include "walk.h"
 
 #define REQUIRE(x)                                                                                 \
@@ -186,6 +187,43 @@ static bool kitchen_playtest(void) {
     return true;
 }
 
+static bool balcony_map_playtest(void) {
+    REQUIRE(mountain_visit(0));
+    double facing = mountain_value(2);
+    press(SDLK_R);
+    press(SDLK_B);
+    REQUIRE(mountain_value(61) && mountain_cabin_pose(3) == RIGHT_WALL);
+    press(SDLK_G);
+    press(SDLK_B);
+    REQUIRE(mountain_value(62) && !mountain_value(61));
+    /* Follow the arrow to the named door, then along the garden's left wall. */
+    mountain_look((float)(facing + mountain_cabin_pose(4) - mountain_value(2)), 0);
+    for (int i = 0;
+         i < 150 && mountain_value(13) != NEAR_NEXT && mountain_value(13) != NEAR_ROOM_DOOR; i++)
+        walk(1, 1, 0);
+    REQUIRE(strstr(mountain_label(22), "winter garden"));
+    if (mountain_value(13) == NEAR_ROOM_DOOR)
+        press(SDLK_E);
+    press(SDLK_E);
+    REQUIRE(mountain_cabin_pose(3) == LEFT_WALL);
+    mountain_look((float)(facing + PI / 2 + mountain_cabin_pose(4) - mountain_value(2)), 0);
+    for (int i = 0;
+         i < 180 && mountain_value(13) != NEAR_BALCONY && mountain_value(13) != NEAR_BALCONY_DOOR;
+         i++)
+        walk(1, 1, 0);
+    REQUIRE(!strcmp(mountain_label(22), "Balcony"));
+    if (mountain_value(13) == NEAR_BALCONY_DOOR)
+        press(SDLK_E);
+    press(SDLK_E);
+    REQUIRE(mountain_value(50) && mountain_cabin_pose(3) == -1);
+    press(SDLK_B);
+    REQUIRE(mountain_value(61) && mountain_value(63) == mountain_value(12));
+    press(SDLK_S);
+    REQUIRE(!mountain_value(63) && mountain_value(50));
+    press(SDLK_B);
+    return true;
+}
+
 static bool run(void) {
     mountain_frame();
     uint32_t trail = display_sample(480, 300);
@@ -246,6 +284,7 @@ static bool run(void) {
     for (int i = 0; i < (int)mountain_value(29); i++)
         REQUIRE(shelter_playtest(i));
     REQUIRE(kitchen_playtest());
+    REQUIRE(balcony_map_playtest());
     return true;
 }
 int main(int argc, char **argv) {
@@ -260,6 +299,7 @@ int main(int argc, char **argv) {
              "passed. Both mountains supported a five-kilometre round trip, distant "
              "wildlife "
              "and a remote cabin visit. All twelve destination shelters, encounters and "
-             "photography passed. Foraging, brewing, baking and balcony dining passed.");
+             "photography passed. Foraging, brewing, baking, balcony dining and finding the "
+             "balcony on foot with the cabin map passed.");
     return passed ? 0 : 1;
 }

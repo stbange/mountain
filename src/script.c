@@ -486,7 +486,7 @@ static int read_layouts(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     int n = (int)lua_rawlen(L, 1);
     if (n < 3 || n > CABIN_LAYOUTS)
-        return luaL_error(L, "cabin_layouts needs 3 to 16 room types");
+        return luaL_error(L, "cabin_layouts needs 3 to %d room types", CABIN_LAYOUTS);
     rules->layouts = n;
     for (int i = 0; i < n; i++) {
         lua_geti(L, 1, i + 1);
@@ -544,6 +544,9 @@ bool script_load(Script *s, const char *assets) {
         if (luaL_dofile(L, path) != LUA_OK)
             return failure(s);
     }
+    snprintf(path, sizeof path, "%s/scripts/cabin-rooms.lua", assets);
+    if (luaL_dofile(L, path) != LUA_OK)
+        return failure(s);
     snprintf(path, sizeof path, "%s/scripts/cabin.lua", assets);
     if (luaL_dofile(L, path) != LUA_OK)
         return failure(s);

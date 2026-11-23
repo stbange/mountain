@@ -458,6 +458,59 @@ static const char *forage_hint(void) {
     return text;
 }
 
+PUBLIC const char *mountain_room_name(uint32_t id) {
+    return id <= game.book.count ? game.rules->layout[cabin_room(&game.book, id)->kind].name : "";
+}
+PUBLIC const char *mountain_room_door(uint32_t id, int wall) {
+    if (id > game.book.count || wall < FRONT || wall > LEFT_WALL)
+        return "";
+    return cabin_door_name(&game, id, (Wall)wall);
+}
+PUBLIC double mountain_room(uint32_t id, int field) {
+    if (id > game.book.count)
+        return -1;
+    const Room *r = cabin_room(&game.book, id);
+    const Layout *l = &game.rules->layout[r->kind];
+    switch (field) {
+    case 0:
+        return r->kind;
+    case 1:
+        return r->depth;
+    case 2:
+        return l->width * 2;
+    case 3:
+        return l->depth * 2;
+    case 4:
+        return l->height;
+    case 5:
+        return l->balcony;
+    case 6:
+        return cabin_doors(&game, id);
+    case 7:
+    case 8:
+    case 9: {
+        uint32_t link = cabin_link(&game.book, id, (Wall)(field - 7));
+        return link == CABIN_NO_ROOM ? -1 : (double)link;
+    }
+    default:
+        return -1;
+    }
+}
+PUBLIC double mountain_cabin_pose(int field) {
+    if (!game.cabin.inside)
+        return field == 3 ? -1 : 0;
+    Cabin frame = cabin_frame(&game);
+    if (field == 2)
+        return remainderf(game.yaw - frame.angle, 2 * PI);
+    if (field == 3)
+        return cabin_balcony_step(&game);
+    if (field == 4) {
+        int wall = cabin_balcony_step(&game);
+        return wall < 0 ? 0 : cabin_door_bearing(&game, (Wall)wall);
+    }
+    Vec local = cabin_local(&frame, game.x, game.z);
+    return field == 0 ? local.x : local.z;
+}
 PUBLIC const char *mountain_label(int key) {
     switch (key) {
     case 6:
@@ -485,6 +538,14 @@ PUBLIC const char *mountain_label(int key) {
         return game.pantry.drink < 0 ? "Field infusion" : mountain_recipe(game.pantry.drink, 0);
     case 21:
         return game.pantry.food < 0 ? "Field bowl" : mountain_recipe(game.pantry.food, 0);
+    case 22: {
+        int wall = cabin_near_door(&game);
+        return wall < 0 ? "" : cabin_door_name(&game, game.cabin.room, (Wall)wall);
+    }
+    case 23: {
+        int wall = cabin_balcony_step(&game);
+        return wall < 0 ? "" : cabin_door_name(&game, game.cabin.room, (Wall)wall);
+    }
     case 11:
         return game.world.place ? game.world.place->notes[2] : "";
     case 12:
@@ -641,7 +702,7 @@ PUBLIC double mountain_value(int key) {
     case 49:
         return game.seated;
     case 50:
-        return kitchen_deck(&game);
+        return cabin_on_balcony(&game);
     case 51:
         return game.cookbook_open;
     case 52:
@@ -662,6 +723,14 @@ PUBLIC double mountain_value(int key) {
         return game.pantry.setting;
     case 60:
         return game.experiment.open;
+    case 61:
+        return game.cabin_map_open;
+    case 62:
+        return game.balcony_guide;
+    case 63:
+        return game.map_room;
+    case 64:
+        return game.rules->layouts;
     case 42: {
         int n = cabin_window(&game);
         return n >= 0 && (cabin_room(&game.book, game.cabin.room)->blinds & (1u << n));
@@ -683,6 +752,8 @@ PUBLIC void mountain_frame(void) {
 }
 PUBLIC void mountain_xr_active(int enabled) {
     immersive = enabled != 0;
+    if (!immersive)
+        game.cabin_map_open = false;
     input_f = input_r = 0;
 }
 PUBLIC void mountain_walk(float dt, float f, float r) {
@@ -717,6 +788,42 @@ bool mountain_photo(void) {
     return ok;
 }
 static void key(SDL_Keycode k) {
+    if (game.cabin_map_open) {
+        switch (k) {
+        case SDLK_B:
+        case SDLK_ESCAPE:
+            if (k == SDLK_ESCAPE) {
+                SDL_SetWindowRelativeMouseMode(window, false);
+                help = false;
+            }
+            mountain_action(ACT_CABIN_MAP);
+            break;
+        case SDLK_UP:
+        case SDLK_W:
+            mountain_action(ACT_MAP_REAR);
+            break;
+        case SDLK_RIGHT:
+        case SDLK_D:
+            mountain_action(ACT_MAP_RIGHT);
+            break;
+        case SDLK_DOWN:
+        case SDLK_S:
+            mountain_action(ACT_MAP_FRONT);
+            break;
+        case SDLK_HOME:
+            mountain_action(ACT_MAP_HEARTH);
+            break;
+        case SDLK_G:
+            mountain_action(ACT_BALCONY_GUIDE);
+            break;
+        case SDLK_R:
+            mountain_action(ACT_HOME);
+            break;
+        default:
+            break;
+        }
+        return;
+    }
     if (game.cookbook_open) {
         switch (k) {
         case SDLK_Q:
@@ -823,7 +930,9 @@ static void key(SDL_Keycode k) {
         mountain_action(ACT_CHANGING_WEATHER);
         break;
     case SDLK_B:
-        if (scripts.rules.survey.data)
+        if (game.cabin.inside)
+            mountain_action(ACT_CABIN_MAP);
+        else if (scripts.rules.survey.data)
             mountain_seed(scripts.rules.survey.seed);
         break;
     case SDLK_LEFTBRACKET:
@@ -863,7 +972,8 @@ bool mountain_step(void) {
             key(ev.key.key);
         if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
             SDL_SetWindowRelativeMouseMode(window, true);
-        if (ev.type == SDL_EVENT_MOUSE_MOTION && SDL_GetWindowRelativeMouseMode(window))
+        if (ev.type == SDL_EVENT_MOUSE_MOTION && !game.cabin_map_open &&
+            SDL_GetWindowRelativeMouseMode(window))
             mountain_look(ev.motion.xrel * .0024f, -ev.motion.yrel * .0024f);
 #endif
     }
@@ -878,7 +988,7 @@ bool mountain_step(void) {
     f += keys[SDL_SCANCODE_W] + keys[SDL_SCANCODE_UP] - keys[SDL_SCANCODE_S] -
          keys[SDL_SCANCODE_DOWN];
     r += keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A];
-    if (!help && !game.cookbook_open)
+    if (!help && !game.cookbook_open && !game.cabin_map_open)
         game_look(&game, (keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT]) * dt * 1.45f, 0);
 #endif
     if (!paused && !help)

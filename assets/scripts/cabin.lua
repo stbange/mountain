@@ -11,7 +11,24 @@ cabin_layouts = {
   {name="The reading room", width=4.8, depth=4.6, height=3.7},
   {name="The map gallery", width=5.4, depth=8, height=4.6, balcony=true},
   {name="The guest room", width=5, depth=4.4, height=3.8},
-  {name="The sunroom", width=6.5, depth=5.4, height=4.5, balcony=true}
+  {name="The sunroom", width=6.5, depth=5.4, height=4.5, balcony=true},
+  {name="The cedar library", width=9, depth=13, height=7.6, balcony=true},
+  {name="The observatory", width=8, depth=9, height=7.6, balcony=true},
+  {name="The tea pavilion", width=7, depth=7.5, height=4.5, balcony=true},
+  {name="The pottery studio", width=6.6, depth=7.2, height=4.6},
+  {name="The music room", width=8.5, depth=11, height=5.9},
+  {name="The seed archive", width=6.6, depth=10, height=5.4},
+  {name="The fern court", width=15, depth=19, height=9.8, balcony=true},
+  {name="The weaving loft", width=6.8, depth=8.4, height=4.4},
+  {name="The print room", width=6.2, depth=8.6, height=4.6},
+  {name="The rain hall", width=13.5, depth=21, height=9.8},
+  {name="The bunkhouse", width=7.4, depth=11, height=5.2},
+  {name="The stone sauna", width=5.8, depth=7, height=3.9},
+  {name="The cabinet of curiosities", width=8, depth=12, height=5.5},
+  {name="The linen room", width=5.8, depth=7, height=4.1},
+  {name="The luthier's workshop", width=7.5, depth=8.5, height=4.8},
+  {name="The dawn terrace room", width=8, depth=9, height=5.5, balcony=true},
+  {name="The long hall", width=12, depth=25, height=10, balcony=true}
 }
 
 local function table_at(b,x,z,w,d)
@@ -409,6 +426,25 @@ local function shell(b,i,l,doors,blinds,panes,omit,key,style)
   end
 end
 
+local function wayfinding(b,i,l)
+  local w,d=l.width,l.depth
+  if i==0 then
+    cabin_plaque(wall_box(b,1,w,d),1,"SPRING BATHS",3.02)
+    local garden_door=wall_box(b,2,w,d)
+    cabin_plaque(garden_door,1,"WINTER GARDEN",3.10)
+    cabin_plaque(garden_door,1,"BALCONY",2.79)
+    for j=1,5 do
+      b(w-j*.41,.008,0,.24,.016,.13,0x60877c,0,math.pi/4)
+    end
+  end
+  if l.balcony then
+    cabin_plaque(wall_box(b,3,w,d),-1,"BALCONY",2.94)
+    for j=1,5 do
+      b(-w+j*.44,.012,0,.26,.018,.13,0x60877c,0,math.pi/4)
+    end
+  end
+end
+
 local function baths(b,w,d)
   b(0,-1.47,0,w*1.12,.20,d*1.13,0x548984)
   for _,s in ipairs({-1,1}) do
@@ -468,11 +504,18 @@ local function garden(b,w,d,key)
   for j=-2,2 do b(j*1.1,5.55,0,.12,.21,d*1.6,oak,3) end
 end
 
+local furnishings = {table=table_at, shelf=shelf, bed=bed, plant=plant}
+
 function build_room(i,key,doors,blinds,panes,omit,b,skin)
   local l=cabin_layouts[i+1]
   local colour=cloth[key%#cloth+1]
   skin=skin or "alpine"
   shell(b,i,l,doors,blinds,panes,omit,skin,shelter_styles[skin])
+  wayfinding(b,i,l)
+  if cabin_room_furniture[i] then
+    cabin_room_furniture[i](b,l,key,furnishings)
+    return
+  end
   if i==1 or i==2 then
     for _,x in ipairs({-1,1}) do for _,z in ipairs({-1,1}) do
       local px,pz=x*l.width*.36,z*(l.depth-.22)

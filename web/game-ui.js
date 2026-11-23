@@ -116,7 +116,8 @@ function refresh() {
   const inside = val(11),
     h = val(4),
     weather = val(6),
-    use = near[val(13)];
+    interaction = val(13),
+    use = near[interaction];
   $("location").textContent = inside ? nameOf(3) : nameOf(0);
   $("biome").textContent = inside
     ? nameOf(12) + " · Room " + (val(12) + 1)
@@ -161,6 +162,7 @@ function refresh() {
     : val(13) === 13
       ? "Gather " + nameOf(18)
       : use;
+  window.updateCabinMapControls?.(inside, interaction);
   $("cabin").querySelector("span").textContent = inside
     ? "Hearth room"
     : val(9)
@@ -778,6 +780,7 @@ function guide() {
         ["Season and weather", "Tap the sky control"],
         ["Look around", "Drag the landscape"],
         ["Call your shelter", "Tap Summon in the trail kit"],
+        ["Cabin map", "Tap Cabin map inside. Follow the balcony signs."],
         [
           "Use a door or read a field sign",
           "Tap the nearby interaction prompt",
@@ -801,6 +804,7 @@ function guide() {
         ["Open or close a door", "F · beside it"],
         ["Open a pane or adjust its blind", "E · pane / J · blind"],
         ["Return to the hearth room", "R"],
+        ["Cabin map", "B indoors · Follow balcony route"],
         ["Camera / take photograph", "C / P"],
         ["Season and weather", "Click the sky control or press V"],
         ["Sound / close panel", "M / Esc"],
@@ -1005,7 +1009,11 @@ function journal() {
     grid.append(b);
   }
 }
-$("map").onclick = trailMap;
+function localMap() {
+  if (val(11) && window.hasCabinMap?.()) cabinMap();
+  else trailMap();
+}
+$("map").onclick = localMap;
 $("guide").onclick = guide;
 $("conditions").onclick = conditions;
 $("change-season").onclick = conditions;
@@ -1088,6 +1096,7 @@ window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   const actions = {
     q: openCookbook,
+    b: localMap,
     z: () => mealAction(17),
     1: () => mealAction(18),
     2: () => mealAction(19),

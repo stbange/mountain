@@ -10,12 +10,6 @@ static const Recipe *recipe_at(const Game *g, int id) {
     return b && id > 0 && id <= b->recipe_max && b->recipes[id].name[0] ? &b->recipes[id] : NULL;
 }
 static bool hearth(const Game *g) { return g->cabin.inside && !g->cabin.room; }
-bool kitchen_deck(const Game *g) {
-    if (!g->cabin.inside || !cabin_layout(g)->balcony)
-        return false;
-    Cabin frame = cabin_frame(g);
-    return cabin_local(&frame, g->x, g->z).x < -cabin_layout(g)->width;
-}
 static bool claimed(const Game *g, int64_t x, int64_t z) {
     for (unsigned i = 0; i < g->pantry.picks; i++) {
         const Harvest *h = &g->pantry.picked[i];
@@ -354,6 +348,7 @@ bool kitchen_action(Game *g, Action a) {
     Pantry *p = &g->pantry;
     switch (a) {
     case ACT_COOKBOOK:
+        g->cabin_map_open = false;
         g->cookbook_open = !g->cookbook_open;
         g->experiment.open = false;
         if (!g->selection)
@@ -416,7 +411,7 @@ bool kitchen_action(Game *g, Action a) {
         g->experiment.open = false;
         return true;
     case ACT_SIT: {
-        if (!kitchen_deck(g))
+        if (!cabin_on_balcony(g))
             return false;
         if (!g->seated) {
             Cabin f = cabin_frame(g);
