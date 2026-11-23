@@ -438,7 +438,7 @@ local function wayfinding(b,i,l)
     end
   end
   if l.balcony then
-    cabin_plaque(wall_box(b,3,w,d),-1,"BALCONY",2.94)
+    cabin_plaque(wall_box(b,3,w,d),-1,"BALCONY",3.06,.054)
     for j=1,5 do
       b(-w+j*.44,.012,0,.26,.018,.13,0x60877c,0,math.pi/4)
     end
@@ -473,9 +473,11 @@ local function baths(b,w,d)
 end
 
 local function garden(b,w,d,key)
+  -- Offset the west beds to keep a sightline and a clear aisle from the entrance to the deck.
+  local west_beds={-.67,-.29,.67}
   for _,s in ipairs({-1,1}) do
     for j=-1,1 do
-      local x,z=s*w*.58,d*j*.56
+      local x,z=s*w*.58,d*(s<0 and west_beds[j+2] or j*.56)
       b(x,.22,z,3.4,.44,2.85,trim,3); b(x,.46,z,3.26,.12,2.70,0x544d38)
       for k=1,9 do
         local a=k*2.4+key%6
@@ -500,6 +502,11 @@ local function garden(b,w,d,key)
   end
   for j=-6,6 do
     for k=-1,1 do b(k*.88,.017,j*1.11,.84,.034,1.065,wood[(j+k)%4+1]+0x212620,0) end
+  end
+  for j=2,math.floor(w)-1 do
+    b(-j,.019,0,.96,.037,.74,0x86a291)
+    b(-j,.040,-.22,.74,.011,.037,0xbbac82)
+    b(-j,.040,.22,.74,.011,.037,0xbbac82)
   end
   for j=-2,2 do b(j*1.1,5.55,0,.12,.21,d*1.6,oak,3) end
 end

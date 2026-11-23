@@ -11,18 +11,18 @@ local letters = {
   R={30,17,17,30,20,18,17}, S={15,16,16,14,1,1,30}, T={31,4,4,4,4,4,4},
   W={17,17,17,21,21,27,17}, Y={17,17,10,4,4,4,4}, [" "]={0,0,0,0,0,0,0}
 }
-function cabin_plaque(wall, direction, title, y)
-  local px=.034
+function cabin_plaque(wall, direction, title, y, px)
+  px=px or .034
   local span=(#title*6-1)*px
-  wall(0,y,-.159,span+.24,.279,.065,cedar,3)
-  wall(0,y,-.197,span+.18,.25,.018,0x324f48)
+  wall(0,y,-.159,span+.24,7*px+.041,.065,cedar,3)
+  wall(0,y,-.197,span+.18,7*px+.012,.018,0x324f48)
   for _,s in ipairs(signs) do wall(s*(span/2+.06),y,-.211,.027,.039,.014,brass) end
   for i=1,#title do
     for row,bits in ipairs(letters[title:sub(i,i)]) do
       for k=0,4 do
         if bits & (16 >> k) ~= 0 then
           local x=((i-1)*6+k+.5)*px-span/2
-          wall(direction*x, y+(4-row)*px,-.212,px,.034,.014,cream)
+          wall(direction*x, y+(4-row)*px,-.212,px,px,.014,cream)
         end
       end
     end
