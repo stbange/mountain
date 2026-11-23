@@ -4,6 +4,7 @@
   "assets/art/clouds.tga",
   "assets/art/field.tga",
   "assets/art/letters.tga",
+  "assets/scripts/cabin-rooms.lua",
   "assets/scripts/cabin.lua",
   "assets/scripts/cookbook.lua",
   "assets/scripts/destinations.lua",

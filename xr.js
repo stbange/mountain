@@ -40,6 +40,8 @@ window.mountainXR = {
         seasonHeld = false,
         weatherHeld = false,
         bookHeld = false,
+        mapHeld = false,
+        movedOnMap = false,
         editingHeld = false,
         headYaw = 0;
       const leave = () => {
@@ -52,14 +54,18 @@ window.mountainXR = {
       };
       session.addEventListener("end", leave, { once: true });
       session.addEventListener("select", () => {
-        if (val(51)) Module._mountain_action(15);
+        if (val(61)) {
+          Module._mountain_action(33);
+          Module._mountain_action(28);
+        } else if (val(51)) Module._mountain_action(15);
         else Module._mountain_observe(headYaw);
         refresh();
       });
       session.addEventListener("squeeze", (event) => {
         const near = val(13);
         const left = event.inputSource?.handedness === "left";
-        if (val(51)) {
+        if (val(61)) mealAction(left ? 32 : 28);
+        else if (val(51)) {
           if (left) mealAction(16);
           else if (!mealAction(20)) mealAction(14);
         } else if (left && val(49)) {
@@ -82,20 +88,28 @@ window.mountainXR = {
             weather = false,
             time = false,
             book = false,
+            map = false,
+            mapMove = 0,
             edit = false;
           for (const source of session.inputSources) {
             const gp = source.gamepad;
             if (!gp) continue;
-            book ||= Boolean(gp.buttons[3]?.pressed);
+            const thumb = Boolean(gp.buttons[3]?.pressed);
             const axes = gp.axes,
               x = axes[axes.length >= 4 ? 2 : 0] || 0,
               y = axes[axes.length >= 4 ? 3 : 1] || 0;
             if (source.handedness === "right") {
+              book ||= thumb;
               turn = x;
+              if (Math.abs(y) > 0.7 && Math.abs(y) > Math.abs(x))
+                mapMove = y < 0 ? 30 : 29;
+              else if (x > 0.7) mapMove = 31;
               edit = Math.abs(y) > 0.72;
               button = Boolean(gp.buttons[4]?.pressed);
               time = Boolean(gp.buttons[5]?.pressed);
             } else {
+              if (val(11)) map ||= thumb;
+              else book ||= thumb;
               season = Boolean(gp.buttons[4]?.pressed);
               weather = Boolean(gp.buttons[5]?.pressed);
               right = Math.abs(x) > 0.15 ? x : 0;
@@ -103,23 +117,29 @@ window.mountainXR = {
             }
           }
           if (book && !bookHeld) mealAction(14);
+          if (map && !mapHeld) mealAction(28);
           bookHeld = book;
-          if (edit && !editingHeld && val(51)) mealAction(27);
+          mapHeld = map;
+          const mapOpen = Boolean(val(61));
+          if (mapOpen && mapMove && !movedOnMap)
+            Module._mountain_action(mapMove);
+          movedOnMap = mapOpen && mapMove !== 0;
+          if (!mapOpen && edit && !editingHeld && val(51)) mealAction(27);
           editingHeld = edit;
-          if (Math.abs(turn) > 0.7 && !turned) {
+          if (!mapOpen && Math.abs(turn) > 0.7 && !turned) {
             if (val(51)) mealAction(turn > 0 ? 21 : 22);
             else Module._mountain_look((Math.sign(turn) * Math.PI) / 6, 0);
           }
           turned = Math.abs(turn) > 0.5;
-          if (season && !seasonHeld) {
+          if (!mapOpen && season && !seasonHeld) {
             if (val(51)) mealAction(23);
             else act(val(11) ? 12 : 4);
           }
-          if (weather && !weatherHeld) {
+          if (!mapOpen && weather && !weatherHeld) {
             if (val(51)) mealAction(val(55) ? 24 : 25);
             else act(val(11) ? 11 : 5);
           }
-          if (time && !timeHeld) {
+          if (!mapOpen && time && !timeHeld) {
             if (val(51)) Module._mountain_prepare(val(54));
             else if (val(49)) mealAction(19);
             else act(val(11) ? 13 : 3);
@@ -127,7 +147,7 @@ window.mountainXR = {
           timeHeld = time;
           seasonHeld = season;
           weatherHeld = weather;
-          if (button && !summoned) {
+          if (!mapOpen && button && !summoned) {
             if (val(51)) Module._mountain_prepare(val(53));
             else if (val(49)) mealAction(18);
             else act(val(11) ? 6 : 1);

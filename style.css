@@ -434,6 +434,7 @@ kbd {
 }
 .interactions {
   display: flex;
+  max-width: calc(100% - 16px);
   gap: 5px;
   justify-content: center;
   white-space: nowrap;
@@ -455,6 +456,14 @@ kbd {
 .use .icon {
   width: 17px;
   height: 17px;
+}
+#use,
+#use > span {
+  min-width: 0;
+}
+#use > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .use kbd {
   margin-left: 4px;
@@ -1338,5 +1347,173 @@ p {
     flex-wrap: wrap;
     justify-content: center;
     max-width: 95%;
+  }
+}
+
+#cabin-way {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d6dec459;
+  background: #1c3328c9;
+  color: #fff2d4;
+  border-radius: 6px;
+  padding: 5px 9px;
+  margin-top: 11px;
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 85vw;
+}
+#cabin-direction {
+  display: inline-grid;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 17px;
+  place-items: center;
+  color: #ffd99d;
+  font-size: 17px;
+  line-height: 1;
+}
+.cabin-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.cabin-map-actions button {
+  min-height: 37px;
+}
+.cabin-map-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(210px, 1fr);
+  gap: 18px;
+}
+.cabin-map-plan {
+  min-width: 0;
+}
+.cabin-plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+.cabin-plan-head h3,
+.cabin-index h3 {
+  font: 28px/1 var(--serif);
+  margin: 0;
+}
+.cabin-plan-head p,
+.cabin-door-card small,
+.cabin-index-room small {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+.cabin-plan-frame {
+  width: 100%;
+  display: block;
+  border: 1px solid #b8bba7;
+  border-radius: 8px;
+}
+.cabin-door-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+}
+.cabin-door-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  min-height: 48px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid #d6d8c7;
+  background: #eeede2;
+  border-radius: 7px;
+  text-align: left;
+}
+button.cabin-door-card {
+  background: #e5ebdf;
+  border-color: #abbba8;
+}
+button.cabin-door-card:hover,
+.cabin-index-room:hover {
+  background: #dce7d9;
+}
+.cabin-door-card strong,
+.cabin-index-room strong {
+  line-height: 1.2;
+}
+.cabin-door-card.balcony-direction {
+  border-color: #b49360;
+  background: #f1e5cd;
+}
+.cabin-door-card.balcony-direction small:last-child {
+  color: #78592f;
+}
+.cabin-index {
+  padding: 12px;
+  background: #eeeade;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+.cabin-index h3 {
+  font-size: 25px;
+}
+.cabin-index input {
+  width: 100%;
+  border: 1px solid #b2b9a3;
+  margin: 10px 0 6px;
+  border-radius: 6px;
+  color: var(--ink);
+  background: #f9f6eb;
+  padding: 8px 9px;
+}
+.cabin-index-room {
+  display: grid;
+  justify-items: start;
+  justify-content: start;
+  width: 100%;
+  gap: 4px;
+  border-bottom: 1px solid #d6d9ca;
+  padding: 8px 6px;
+  text-align: left;
+}
+.cabin-index-room[aria-pressed="true"] {
+  background: #dae4d7;
+}
+.cabin-place-tag {
+  color: #914832;
+  font-size: 11px;
+  font-weight: 700;
+}
+.cabin-index-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-top: 6px;
+}
+@media (max-width: 680px) {
+  .cabin-map-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .cabin-map-actions {
+    gap: 5px;
+  }
+  .cabin-map-actions .action {
+    padding: 0 8px;
+    font-size: 12px;
+  }
+  #cabin-way {
+    font-size: 11px;
+    max-width: 66vw;
   }
 }
